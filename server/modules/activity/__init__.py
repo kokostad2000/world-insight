@@ -13,16 +13,17 @@ def _get(store, kind, record_id):
 def on_event(store,event):
     payload=event['payload']; event_type=event['type']
     if event_type not in {'evidence.created','evidence.updated','evidence.corrected','event.created','event.updated','claim.created','claim.updated','observation.updated',
-                          'judgment.created','judgment.revised','research.needs_review','source.failed','source.recovered'}:
+                          'judgment.created','judgment.revised','research.needs_review','source.failed','source.recovered','record.deleted','record.restored'}:
         return
     record_id='change-'+event['id']
     if _get(store,'change',record_id):return
-    needs_review=event_type in ('evidence.corrected','research.needs_review') or bool(payload.get('dependency_review'))
+    needs_review=event_type in ('evidence.corrected','research.needs_review','record.deleted') or bool(payload.get('dependency_review'))
     titles={'evidence.created':'新增材料，待核查','evidence.updated':'材料字段变化，尚未确认实质更正',
             'evidence.corrected':'材料已确认更正或撤回','event.created':'新增事件记录','claim.created':'新增主体说法',
             'judgment.created':'新增研究判断','judgment.revised':'判断已修订','research.needs_review':'相关研究需要重新审阅',
             'source.failed':'来源检查失败，覆盖存在缺口','source.recovered':'来源恢复可用'}
     titles.update({'event.updated':'事件或政策状态更新','claim.updated':'主体说法更新','observation.updated':'指标修订，观测期保持不变'})
+    titles.update({'record.deleted':'记录已移入回收站，引用保留待检查','record.restored':'记录已恢复，原待复查状态保留'})
     if event_type=='evidence.updated' and needs_review:titles[event_type]='材料访问或授权变化，相关研究待检查'
     topics=payload.get('topic_ids') or [payload.get('topic_id')]
     store.create('change',{'event_id':event['id'],'type':event_type,'aggregate_id':event['aggregate_id'],
@@ -40,6 +41,8 @@ def on_event(store,event):
         for brief in store.all('brief'):
             affected=any(ref.split('@')[0]==evidence_id for ref in brief.get('evidence_version_ids',[]))
             if event_type=='research.needs_review' and event['aggregate_id'] in brief.get('judgment_ids',[]):affected=True
+            if event_type=='record.deleted' and payload.get('object_kind')=='judgment' and event['aggregate_id'] in brief.get('judgment_ids',[]):affected=True
+            if event_type=='record.deleted' and payload.get('object_kind')=='topic' and event['aggregate_id']==brief.get('topic_id'):affected=True
             if affected and event['id'] not in brief.get('review_event_ids',[]):
                 store.update('brief',brief['id'],{'status':'needs_review','review_reason':payload.get('reason') or '引用材料发生更正或访问限制',
                                                 'review_event_ids':brief.get('review_event_ids',[])+[event['id']]},brief['version'])
@@ -68,6 +71,7 @@ def dashboard(store,query):
         if start and start>end:raise ApiError(400,'invalid_range','开始时间不可晚于结束时间')
     if window=='unread':start=None
     topics=store.all('topic'); followed={t['id'] for t in topics if t.get('followed',True) and t.get('status','active')=='active'}
+    baselines={t['id']:_date(t.get('reading_baseline')) for t in topics}
     topic_id=query.get('topic_id') or None
     states={(s['change_id'],s['change_version']) for s in store.all('read_state')}
     items=[]
@@ -79,8 +83,15 @@ def dashboard(store,query):
         if start and discovered<start:continue
         if end and discovered>end:continue
         read=(change['id'],change['version']) in states
+        # A baseline defines the initial unread window; it is not a fabricated read action.
+        scoped_topics={topic_id} if topic_id else (associated.intersection(followed) if associated else followed)
+        before_baseline=bool(scoped_topics) and all(baselines.get(t) and discovered<baselines[t] for t in scoped_topics)
+        # A newly revised change must become visible even if its original discovery predates the baseline.
+        if before_baseline and change['version']>1:
+            before_baseline=all(baselines.get(t) and _date(change['updated_at'])<baselines[t] for t in scoped_topics)
+        if window=='unread' and before_baseline:continue
         if window=='unread' and read:continue
-        items.append({**change,'read':read})
+        items.append({**change,'read':read,'before_reading_baseline':before_baseline})
     items.sort(key=lambda c:c['discovered_at'],reverse=True)
     try:limit=min(200,max(1,int(query.get('limit',20))));offset=max(0,int(query.get('offset',0)))
     except (ValueError,TypeError):raise ApiError(400,'invalid_pagination','分页参数必须为整数')
@@ -142,6 +153,13 @@ def make_brief(store,body):
                                  'judgment_ids':[j['id'] for j in judgments],'judgment_versions':[{ 'id':j['id'],'version':j['version']} for j in judgments],
                                  'status':'needs_review' if needs_review else 'generated','generated_at':store.now(),
                                  'missing_evidence':any(not j.get('evidence_version_ids') for j in judgments)})
+
+
+def lifecycle_change(store,kind,record_id,expected_version,deleted,reason):
+    if kind!='brief' or not isinstance(reason,str) or not reason.strip():
+        raise ApiError(400,'invalid_deletion','只能通过此入口处理简报，且需说明原因')
+    return store.update(kind,record_id,{'deleted':bool(deleted),'deleted_at':store.now() if deleted else None,
+        'deleted_reason':reason,'restored_at':None if deleted else store.now()},expected_version)
 
 
 def handle(store,method,segments,body,query):

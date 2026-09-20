@@ -52,12 +52,14 @@ def temporal(value, name, precision=None):
     return value
 
 
-def references(store, value, name="evidence_version_ids"):
+def references(store, value, name="evidence_version_ids", allow_deleted=()):
     refs = strings(value, name)
     for ref in refs:
         if not re.fullmatch(r"[^@]+@[1-9]\d*", ref):
             fail(f"{name} 必须引用明确材料版本，如 evidence_id@1")
         store.version(ref)
+        if store.get("evidence", ref.rsplit("@", 1)[0]).get("deleted") and ref not in allow_deleted:
+            fail("新引用不能使用回收站材料；原有引用仍保留占位", "deleted_reference")
     return refs
 
 

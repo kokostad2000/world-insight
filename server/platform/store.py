@@ -23,6 +23,7 @@ class Store:
         self.db.execute('PRAGMA foreign_keys=ON')
         self.db.execute('PRAGMA journal_mode=WAL')
         self.db.execute('PRAGMA synchronous=FULL')
+        self.db.execute('PRAGMA secure_delete=ON')
         self.db.execute('PRAGMA busy_timeout=15000')
         migrate(self.db, self.path)
 
@@ -69,12 +70,14 @@ class Store:
                 raise ApiError(404, 'not_found', '记录不存在', {'kind':kind,'id':record_id})
             return json.loads(row['data'])
 
-    def list(self, kind, topic_id=None, limit=100, offset=0, search=None):
+    def list(self, kind, topic_id=None, limit=100, offset=0, search=None, include_deleted=False):
         try:
             limit, offset = min(200, max(1,int(limit))), max(0,int(offset))
         except (TypeError, ValueError) as exc:
             raise ApiError(400, 'invalid_pagination', '分页参数必须是整数') from exc
         where, args = ['kind=?'], [kind]
+        if not include_deleted:
+            where.append("COALESCE(json_extract(data,'$.deleted'),0)=0")
         if topic_id is not None:
             where.append('(topic_id=? OR EXISTS (SELECT 1 FROM json_each(records.data,\'$.topic_ids\') WHERE value=?))'); args.extend([topic_id,topic_id])
         if search:
@@ -86,20 +89,69 @@ class Store:
         return {'items':[json.loads(r[0]) for r in items], 'total':total,'offset':offset,'limit':limit,
                 'data_status':'fresh', 'empty_reason':'no_matches' if not total else None}
 
-    def all(self, kind, topic_id=None):
+    def all(self, kind, topic_id=None, include_deleted=False):
         with self._lock:
             if topic_id is None:
                 rows = self.db.execute('SELECT data FROM records WHERE kind=? ORDER BY updated_at DESC,id',(kind,)).fetchall()
             else:
                 rows = self.db.execute('SELECT data FROM records WHERE kind=? AND (topic_id=? OR EXISTS (SELECT 1 FROM json_each(records.data,\'$.topic_ids\') WHERE value=?)) ORDER BY updated_at DESC,id',(kind,topic_id,topic_id)).fetchall()
-        return [json.loads(r[0]) for r in rows]
+        records = [json.loads(r[0]) for r in rows]
+        return records if include_deleted else [r for r in records if not r.get('deleted')]
 
-    def find(self, kind, field, value):
+    def find(self, kind, field, value, include_deleted=False):
         if not field.replace('_','').isalnum():
             raise ValueError('Invalid field name')
         with self._lock:
             rows = self.db.execute(f"SELECT data FROM records WHERE kind=? AND json_extract(data,'$.{field}') IS ?",(kind,value)).fetchall()
-        return [json.loads(r[0]) for r in rows]
+        records = [json.loads(r[0]) for r in rows]
+        return records if include_deleted else [r for r in records if not r.get('deleted')]
+
+    def snapshots(self):
+        """Complete read-only version scan, including tombstones and historical references."""
+        with self._lock:
+            rows = self.db.execute('SELECT kind,data FROM versions ORDER BY kind,id,version').fetchall()
+        return [{'kind': row[0], 'record': json.loads(row[1])} for row in rows]
+
+    def redact_content(self, kind, record_id, expected_version, reason, operation_id):
+        """Explicit licensed-content expiry exception to immutable payload snapshots.
+
+        IDs, version numbers, provenance and user notes survive. No original text
+        is copied into the audit. Domain owners decide eligibility and propagation.
+        """
+        if kind != 'evidence' or not reason or not operation_id:
+            raise ApiError(400, 'invalid_redaction', '内容到期清理须指定材料、原因和操作编号')
+        with self.transaction():
+            old = self.get(kind, record_id)
+            if operation_id in old.get('redaction_operation_ids', []):
+                return old
+            if old['version'] != expected_version:
+                raise ApiError(409, 'version_conflict', '材料在清理前已变化，请重新预览')
+            timestamp = self.now()
+            for snapshot in self.history(kind, record_id):
+                snapshot.update({'excerpt': '', 'translation': '', 'content_fingerprint': None,
+                                 'content_expired': True, 'content_redacted_at': timestamp,
+                                 'content_redaction_reason': reason})
+                raw = json.dumps(snapshot, ensure_ascii=False, allow_nan=False)
+                self.db.execute('UPDATE versions SET data=? WHERE kind=? AND id=? AND version=?',
+                                (raw, kind, record_id, snapshot['version']))
+                if snapshot['version'] == old['version']:
+                    self.db.execute('UPDATE records SET data=? WHERE kind=? AND id=?', (raw, kind, record_id))
+            return self.update(kind, record_id, {'excerpt': '', 'translation': '', 'content_fingerprint': None,
+                'content_expired': True, 'content_redacted_at': timestamp, 'content_redaction_reason': reason,
+                'redaction_operation_ids': old.get('redaction_operation_ids', []) + [operation_id]}, expected_version)
+
+    def compact(self):
+        """Reclaim redacted database/free-page and WAL bytes after a committed batch."""
+        with self._lock:
+            if self.db.in_transaction:
+                raise RuntimeError('Compaction requires a committed transaction')
+            checkpoint = self.db.execute('PRAGMA wal_checkpoint(TRUNCATE)').fetchone()
+            if checkpoint[0]:
+                raise ApiError(503, 'redaction_checkpoint_busy', '清理已提交，数据库仍被读取；稍后重试收缩')
+            self.db.execute('VACUUM')
+            checkpoint = self.db.execute('PRAGMA wal_checkpoint(TRUNCATE)').fetchone()
+            if checkpoint[0]:
+                raise ApiError(503, 'redaction_checkpoint_busy', '清理已提交，稍后重试日志收缩')
 
     def update(self, kind, record_id, data, expected_version):
         with self.transaction():

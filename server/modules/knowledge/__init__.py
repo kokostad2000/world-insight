@@ -17,6 +17,7 @@ METRIC_FIELDS = {"indicator", "country_code", "value", "unit", "period", "publis
 EVIDENCE_STATUSES = {"unverified", "reviewed", "disputed", "corrected", "withdrawn", "inaccessible", "restricted"}
 EVIDENCE_FIELDS.add("content_scope")
 METRIC_FIELDS.add("topic_ids")
+PROVENANCE_FIELDS = {"ingest_origin", "first_collected_at", "manually_touched"}
 
 
 def canonical_url(value):
@@ -125,6 +126,9 @@ def _event_payload(record, reason=None, **extra):
 
 def _present(record, action="display"):
     item = copy.deepcopy(record)
+    if item.get("deleted"):
+        item.update({"excerpt": "", "translation": "", "notes": "", "content_restricted": True,
+                     "lifecycle_label": "已移入回收站；保留引用占位，可显式恢复"})
     if item.get("rights"):
         if not _excerpt_allowed(item["rights"], action) or not _excerpt_allowed(item["rights"], "store") or item.get("status") == "restricted":
             item["excerpt"], item["translation"] = "", ""
@@ -205,17 +209,31 @@ def _dedup(store, data):
     return None
 
 
-def ingest(store, data):
+def ingest(store, data, *, origin="manual"):
     """Public acquisition boundary. Exact identity, immutable updates, no semantic confirmation."""
     clean = fields(data, EVIDENCE_FIELDS)
+    if origin not in {"manual", "collector"}:
+        fail("未知材料登记方式")
     with store.transaction():
         _ensure_alias_index(store)
         item = _prepare_evidence(store, clean)
         old = _dedup(store, item)
         if old:
+            if old.get("deleted"):
+                return {**_present(old), "deduplicated": True, "suppressed": "deleted"}
             channels = _channels(old.get("channels", []) + item["channels"])
             topics = list(dict.fromkeys(old.get("topic_ids", []) + ([old["topic_id"]] if old.get("topic_id") else []) + item["topic_ids"]))
             patch = {"channels": channels, "topic_ids": topics}
+            if origin == "manual":
+                if clean.get("status") in {"corrected", "withdrawn", "inaccessible", "restricted"} and clean["status"] != old.get("status"):
+                    fail("已存在的材料更正或访问限制请使用 corrections 接口", "correction_required")
+                patch["manually_touched"] = True
+                # Registering a known URL must not silently drop the entered research note.
+                for key in ("material_type", "language", "publisher", "author", "origin_evidence_id", "rights", "status", "translation"):
+                    if key in clean and clean[key] not in (None, ""):
+                        patch[key] = item[key]
+                if clean.get("notes") and clean["notes"] not in (old.get("notes") or ""):
+                    patch["notes"] = "\n".join(filter(None, [old.get("notes"), clean["notes"]]))
             same_identity = (item.get("url") and item["url"] == old.get("url")) or (item.get("source_record_id") and item["source_record_id"] == old.get("source_record_id") and item["source_id"] == old.get("source_id"))
             tracked = ("title", "excerpt", "source_updated_at", "published_at")
             changed = same_identity and any(item.get(k) != old.get(k) for k in tracked if k in clean)
@@ -225,6 +243,11 @@ def ingest(store, data):
                 patch["change_candidate"] = True
                 content = item["excerpt"] if "excerpt" in clean else old.get("excerpt", "")
                 patch["content_fingerprint"] = hashlib.sha256(content.encode()).hexdigest() if content else None
+            if old.get("content_expired"):
+                patch.update({"excerpt": "", "translation": "", "content_fingerprint": None})
+            # Validate the merged rights/content combination; acquisition never bypasses storage rights.
+            merged = _prepare_evidence(store, patch, old)
+            patch.update({key: merged[key] for key in patch if key in EVIDENCE_FIELDS})
             if all(old.get(k) == v for k, v in patch.items()):
                 _bind_aliases(store, old)
                 return {**_present(old), "deduplicated": True}
@@ -232,6 +255,7 @@ def ingest(store, data):
             _bind_aliases(store, updated)
             store.publish("evidence.updated", old["id"], _event_payload(updated, patch.get("change_reason", "新增出现渠道或议题关联")))
             return {**_present(updated), "deduplicated": True}
+        item.update({"ingest_origin": origin, "first_collected_at": store.now(), "manually_touched": origin == "manual"})
         created = store.create("evidence", item)
         _bind_aliases(store, created)
         store.publish("evidence.created", created["id"], _event_payload(created))
@@ -242,7 +266,7 @@ def _prepare_claim(store, data, old=None):
     item = {"subject": "", "statement": "", "evidence_version_ids": [], "attribution": "", "dispute_status": "unverified", "topic_id": None, "notes": "", "change_reason": "初次登记", "is_fixture": False, **(old or {}), **data}
     for key in ("subject", "statement", "attribution"):
         item[key] = text(item[key], key, key != "attribution")
-    item["evidence_version_ids"] = references(store, item["evidence_version_ids"])
+    item["evidence_version_ids"] = references(store, item["evidence_version_ids"], allow_deleted=(old or {}).get("evidence_version_ids", []))
     if not item["evidence_version_ids"]:
         fail("说法须保留原材料版本引用")
     item["dispute_status"] = choice(item["dispute_status"], {"unverified", "reviewed", "disputed", "needs_review"}, "dispute_status")
@@ -276,7 +300,7 @@ def _prepare_event(store, data, old=None):
     item["claim_ids"] = strings(item["claim_ids"], "claim_ids")
     for claim_id in item["claim_ids"]:
         store.get("claim", claim_id)
-    item["evidence_version_ids"] = references(store, item["evidence_version_ids"])
+    item["evidence_version_ids"] = references(store, item["evidence_version_ids"], allow_deleted=(old or {}).get("evidence_version_ids", []))
     item["verification_status"] = choice(item["verification_status"], {"unverified", "reviewed", "disputed", "needs_review"}, "verification_status")
     item["topic_id"] = topic(store, item["topic_id"])
     return {k: v for k, v in item.items() if k in EVENT_FIELDS}
@@ -290,7 +314,7 @@ def _prepare_metric(store, data, old=None):
         fail("指标值须为有限数字或 null；未知不能以零替代")
     item["period"] = text(item["period"], "period", True)
     item["published_at"] = temporal(item["published_at"], "published_at")
-    item["evidence_version_ids"] = references(store, item["evidence_version_ids"])
+    item["evidence_version_ids"] = references(store, item["evidence_version_ids"], allow_deleted=(old or {}).get("evidence_version_ids", []))
     item["topic_id"] = topic(store, item["topic_id"])
     item["topic_ids"] = strings(item.get("topic_ids",[]),"topic_ids")
     if item["topic_id"] and item["topic_id"] not in item["topic_ids"]:item["topic_ids"].append(item["topic_id"])
@@ -332,6 +356,43 @@ def _mark_dependents(store, evidence, reason):
                 store.update(kind, record["id"], {status_field: "needs_review", "review_reason": reason}, record["version"])
 
 
+def lifecycle_change(store, kind, record_id, expected_version, deleted, reason):
+    """M3-owned reversible deletion; external coordinator owns preview and recovery."""
+    if kind not in COLLECTIONS.values():
+        fail("不是资料库拥有的记录")
+    text(reason, "reason", True)
+    with store.transaction():
+        old = store.get(kind, record_id)
+        changed = store.update(kind, record_id, {"deleted": bool(deleted),
+            "deleted_at": store.now() if deleted else None, "deleted_reason": reason,
+            "restored_at": None if deleted else store.now()}, expected_version)
+        if kind == "evidence":
+            if deleted:
+                _mark_dependents(store, changed, reason)
+            store.publish("evidence.updated", record_id, _event_payload(changed, reason, dependency_review=bool(deleted)))
+        elif kind == "claim" and deleted:
+            for event in store.all("event"):
+                if record_id in event.get("claim_ids", []):
+                    revised = store.update("event", event["id"], {"verification_status": "needs_review", "review_reason": reason}, event["version"])
+                    store.publish("event.updated", event["id"], _event_payload(revised, reason))
+        store.publish("record.deleted" if deleted else "record.restored", record_id,
+                      {**_event_payload(changed, reason), "object_kind": kind, "evidence_id": record_id if kind == "evidence" else None})
+        return _present(changed)
+
+
+def expire_content(store, evidence_id, expected_version, reason, operation_id):
+    """Licensed-content expiry, preserving IDs and propagating changed availability."""
+    with store.transaction():
+        old = store.get("evidence", evidence_id)
+        if operation_id in old.get("redaction_operation_ids", []):
+            return _present(old)
+        changed = store.redact_content("evidence", evidence_id, expected_version, reason, operation_id)
+        _mark_dependents(store, changed, reason)
+        store.publish("evidence.updated", evidence_id,
+                      _event_payload(changed, reason, dependency_review=True), event_id="content-expired:"+operation_id)
+        return _present(changed)
+
+
 def correct(store, evidence_id, body):
     allowed = {"reason", "status", "substantive", "title", "excerpt", "rights", "human_confirmed"}
     clean = fields(body, allowed)
@@ -344,12 +405,15 @@ def correct(store, evidence_id, body):
         fail("实质更正或撤回须由用户确认 substantive=true；格式变化不改变事实状态")
     with store.transaction():
         old = store.get("evidence", evidence_id)
+        if old.get("deleted"):
+            fail("材料已在回收站，请先恢复后编辑", "record_deleted")
         version = expected(body)
         patch = {k: clean[k] for k in ("title", "excerpt", "rights") if k in clean}
         patch.update({"status": status, "change_reason": reason})
         item = _prepare_evidence(store, patch, old)
         item["change_candidate"] = False if substantive else old.get("change_candidate", False)
         item["substantive_confirmed_at"] = store.now() if substantive else None
+        item["manually_touched"] = True
         updated = store.update("evidence", evidence_id, item, version)
         old_refs = [f'{evidence_id}@{v["version"]}' for v in store.history("evidence", evidence_id) if v["version"] < updated["version"]]
         dependency_change = substantive or status in {"inaccessible", "restricted"}
@@ -367,6 +431,8 @@ def split(store, evidence_id, body):
         fail("请选择要拆分的渠道")
     with store.transaction():
         old = store.get("evidence", evidence_id)
+        if old.get("deleted"):
+            fail("材料已在回收站，请先恢复后拆分", "record_deleted")
         version = expected(body)
         existing = {_channel_key(c): c for c in old.get("channels", [])}
         selected_keys = {_channel_key(c) for c in selected}
@@ -376,8 +442,9 @@ def split(store, evidence_id, body):
         remaining = [v for k, v in existing.items() if k not in selected_keys]
         base = {k: copy.deepcopy(v) for k, v in old.items() if k in EVIDENCE_FIELDS}
         base.update({"channels": selected, "url": selected[0].get("url"), "source_id": selected[0].get("source_id"), "source_record_id": selected[0].get("source_record_id"), "change_reason": reason, "status": "unverified"})
-        new = store.create("evidence", {**_prepare_evidence(store, base), "split_from": old["id"], "split_reason": reason})
-        revised = store.update("evidence", old["id"], {"channels": remaining, "url": remaining[0].get("url"), "source_id": remaining[0].get("source_id"), "source_record_id": remaining[0].get("source_record_id"), "change_reason": reason, "split_children": old.get("split_children", []) + [new["id"]]}, version)
+        new = store.create("evidence", {**_prepare_evidence(store, base), "split_from": old["id"], "split_reason": reason,
+                                        "ingest_origin": "manual", "first_collected_at": old.get("first_collected_at", old["created_at"]), "manually_touched": True})
+        revised = store.update("evidence", old["id"], {"channels": remaining, "url": remaining[0].get("url"), "source_id": remaining[0].get("source_id"), "source_record_id": remaining[0].get("source_record_id"), "change_reason": reason, "manually_touched": True, "split_children": old.get("split_children", []) + [new["id"]]}, version)
         _bind_aliases(store, revised)
         _bind_aliases(store, new)
         _mark_dependents(store, revised, reason)
@@ -495,6 +562,8 @@ def handle(store, method, segments, body, query):
             if method == "PATCH":
                 with store.transaction():
                     old = store.get(kind, record_id)
+                    if old.get("deleted"):
+                        fail("记录已在回收站，请先恢复后编辑", "record_deleted")
                     allowed, prepare = {"evidence": (EVIDENCE_FIELDS, _prepare_evidence), "claim": (CLAIM_FIELDS, _prepare_claim), "event": (EVENT_FIELDS, _prepare_event), "observation": (METRIC_FIELDS, _prepare_metric)}[kind]
                     clean = fields(body, allowed)
                     if kind == "evidence" and clean.get("status") in {"corrected", "withdrawn", "inaccessible", "restricted"} and clean.get("status") != old.get("status"):
@@ -502,6 +571,10 @@ def handle(store, method, segments, body, query):
                     if kind == "evidence" and "topic_ids" in clean and "topic_id" not in clean and old.get("topic_id") not in clean["topic_ids"]:
                         clean["topic_id"] = clean["topic_ids"][0] if clean["topic_ids"] else None
                     item = prepare(store, clean, old)
+                    if kind == "evidence":
+                        item["manually_touched"] = True
+                        if old.get("content_expired"):
+                            item.update({"excerpt": "", "translation": "", "content_fingerprint": None})
                     if kind == "evidence" and any(item.get(k) != old.get(k) for k in ("title", "excerpt")):
                         item["change_candidate"] = True
                     updated = store.update(kind, record_id, item, expected(body))
