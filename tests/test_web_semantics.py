@@ -59,6 +59,8 @@ class WebSemanticsTests(unittest.TestCase):
           assert.ok(!renderField(field,{rights:{display:'metadata'}},context).includes(' checked'));
           assert.ok(!renderField(field,{rights:{display:'unknown'}},context).includes(' checked'));
           assert.ok(renderField(field,{rights:{display:'excerpt'}},context).includes(' checked'));
+          const origin=renderField({key:'origin_evidence_id',title:'原始出处',type:'evidence'},{origin_evidence_id:'older-than-loaded'},context);
+          assert.ok(origin.includes('value="older-than-loaded" selected'));
           const refs=referenceOptions([{id:'e',version:2,title:'current'}],['e@1']);
           assert.ok(refs.some(([id])=>id==='e@1')); assert.ok(refs.some(([id])=>id==='e@2'));
         """)

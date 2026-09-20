@@ -47,6 +47,7 @@ export function renderField(field, record, context) {
    if(field.type==='source')options=[['manual','人工登记'],...context.sources.filter(x=>x.id!=='manual').map(x=>[x.id,x.name])];
    if(field.type==='evidence')options=[['','独立性／原始出处尚未确认'],...context.evidence.filter(x=>x.id!==record.id).map(x=>[x.id,x.title])];
    if(field.type==='judgment')options=[['','请选择判断'],...context.judgments.map(x=>[x.id,`${x.conclusion} · v${x.version}`])];
+   if(value!==null&&value!==undefined&&value!==''&&!options.some(([v])=>String(v)===String(value)))options.push([value,`已保存的引用 ${value}`]);
    control=`<select ${attrs}>${optionHtml(options,value)}</select>`;
  }else control=`<input type="${field.type}" ${attrs} value="${esc(field.type==='date'?String(value||'').slice(0,10):value)}" ${field.min!==undefined?`min="${field.min}"`:''} ${field.step?`step="${field.step}"`:''}>`;
  return `<div class="field ${field.full?'full':''}">${field.type==='checkbox'?'':`<label for="${esc(id)}">${esc(field.title)}${field.required?'<span class="required">*</span>':''}</label>`}${control}${field.hint?`<div class="hint">${esc(field.hint)}</div>`:''}</div>`;
