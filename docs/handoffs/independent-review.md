@@ -75,8 +75,8 @@
 ### 9. P2：初次阅读基线未用于“自上次阅读”
 
 - 位置：research `:18-30` 只保存 reading_baseline；activity `:57-98` 的 unread 分支 64 把 start 设为 None。对应 AC18。
-- 复现：topic.reading_baseline=`2026-09-20T15:30:00Z`；已有全局 source.failed 变化 discovered_at=`2026-08-01T00:00:00Z`；查询该议题 unread。
-- 实际：返回基线之前的旧变化。reading_baseline 未参与消费。
+- 复现：topic.reading_baseline=`2026-09-20T15:30:00Z`；分别建立议题关联变化及全局 source.failed 变化，discovered_at 都为 `2026-08-01T00:00:00Z`；查询议题筛选 unread 和全关注 unread。
+- 实际：议题筛选返回 1 条旧议题变化；全关注返回 2 条旧变化（旧议题及全局来源变化）。议题筛选本身不包含全局条目。reading_baseline 未参与消费。
 - 最小修复：首次 unread 按所关注议题/范围基线筛选，保留历史窗口查询，不伪造阅读记录。
 
 ## P0 缺口：保留策略和用户主动删除
