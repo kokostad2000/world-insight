@@ -156,6 +156,20 @@ def _bind_aliases(store, record):
                     store.update("evidence_alias", alias_id, {"evidence_id": record["id"]}, old["version"])
 
 
+def _ensure_alias_index(store):
+    """Backfill older databases once, including identities kept only as channels."""
+    try:
+        store.get("knowledge_index", "evidence-alias-v1")
+        return
+    except ApiError as error:
+        if error.status != 404:
+            raise
+    # The caller holds a transaction, so a crash cannot leave a falsely complete marker.
+    for record in store.all("evidence"):
+        _bind_aliases(store, record)
+    store.create("knowledge_index", {"name": "evidence_alias", "revision": 1}, "evidence-alias-v1")
+
+
 def _dedup(store, data):
     for key in _alias_keys(data):
         try:
@@ -188,6 +202,7 @@ def ingest(store, data):
     """Public acquisition boundary. Exact identity, immutable updates, no semantic confirmation."""
     clean = fields(data, EVIDENCE_FIELDS)
     with store.transaction():
+        _ensure_alias_index(store)
         item = _prepare_evidence(store, clean)
         old = _dedup(store, item)
         if old:

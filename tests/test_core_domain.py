@@ -69,6 +69,20 @@ class CoreDomainTests(unittest.TestCase):
         self.assertEqual(again["version"], 1)
         self.assertEqual(first["id"], again["id"])
 
+    def test_older_database_channel_identities_are_backfilled(self):
+        # Simulate a persisted database from before aliases existed, not a mocked Store.
+        old = self.store.create('evidence', {
+            'title':'[旧版夹具] 已合并材料','source_id':'manual','source_record_id':None,
+            'url':'https://fixture.example/original','excerpt':'','topic_id':self.topic['id'],
+            'topic_ids':[self.topic['id']], 'rights':{'store':'metadata','display':'metadata','export':'metadata'},
+            'channels':[{'source_id':'manual','url':'https://fixture.example/original'},
+                        {'source_id':'rss','source_record_id':'alternate','url':'https://fixture.example/alternate'}]})
+        fetched = self.evidence(title='[旧版夹具] 已合并材料',source_id='rss',source_record_id='alternate',
+                                url='https://fixture.example/alternate',excerpt='')
+        self.assertEqual(fetched['id'],old['id'])
+        self.assertEqual(self.store.list('evidence')['total'],1)
+        self.assertEqual(self.store.get('knowledge_index','evidence-alias-v1')['revision'],1)
+
     def test_similar_titles_do_not_merge_and_cannot_infer_event_time(self):
         a = self.evidence(excerpt="", title="某地区宣布停火", url="https://fixture.example/a")
         b = self.evidence(excerpt="", title="某地区宣布停火", url="https://fixture.example/b")

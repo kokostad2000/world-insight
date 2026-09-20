@@ -1,0 +1,33 @@
+test_annual_metrics_preserve_period_and_unknown (tests.test_core_domain.CoreDomainTests.test_annual_metrics_preserve_period_and_unknown) ... ok
+test_assumption_judgment_mark_survives_review_and_export (tests.test_core_domain.CoreDomainTests.test_assumption_judgment_mark_survives_review_and_export) ... ok
+test_closed_loop_persist_revision_conflict_and_export (tests.test_core_domain.CoreDomainTests.test_closed_loop_persist_revision_conflict_and_export) ... ok
+test_conflicting_claims_stay_separate (tests.test_core_domain.CoreDomainTests.test_conflicting_claims_stay_separate) ... ok
+test_correction_propagates_idempotently_and_preserves_history (tests.test_core_domain.CoreDomainTests.test_correction_propagates_idempotently_and_preserves_history) ... ok
+test_country_position_cannot_claim_exact_coordinates (tests.test_core_domain.CoreDomainTests.test_country_position_cannot_claim_exact_coordinates) ... ok
+test_export_filters_rights_and_secrets (tests.test_core_domain.CoreDomainTests.test_export_filters_rights_and_secrets) ... ok
+test_format_change_preserves_research_review_state (tests.test_core_domain.CoreDomainTests.test_format_change_preserves_research_review_state) ... ok
+test_history_endpoint_obeys_current_display_restriction (tests.test_core_domain.CoreDomainTests.test_history_endpoint_obeys_current_display_restriction) ... ok
+test_indeterminate_review_is_separate_and_references_old_judgment (tests.test_core_domain.CoreDomainTests.test_indeterminate_review_is_separate_and_references_old_judgment) ... ok
+test_no_substantive_confirmation_no_retraction (tests.test_core_domain.CoreDomainTests.test_no_substantive_confirmation_no_retraction) ... ok
+test_older_database_channel_identities_are_backfilled (tests.test_core_domain.CoreDomainTests.test_older_database_channel_identities_are_backfilled) ... ok
+test_precise_dedup_keeps_channels_and_multi_topic_unlink (tests.test_core_domain.CoreDomainTests.test_precise_dedup_keeps_channels_and_multi_topic_unlink) ... ok
+test_repeated_channel_without_excerpt_uses_persistent_alias (tests.test_core_domain.CoreDomainTests.test_repeated_channel_without_excerpt_uses_persistent_alias) ... ok
+test_repeated_ingest_is_idempotent (tests.test_core_domain.CoreDomainTests.test_repeated_ingest_is_idempotent) ... ok
+test_restriction_propagates_without_erasing_metadata (tests.test_core_domain.CoreDomainTests.test_restriction_propagates_without_erasing_metadata) ... ok
+test_review_clears_due_date_only_for_current_version (tests.test_core_domain.CoreDomainTests.test_review_clears_due_date_only_for_current_version) ... ok
+test_reviewed_scenario_can_truthfully_lack_opposition (tests.test_core_domain.CoreDomainTests.test_reviewed_scenario_can_truthfully_lack_opposition) ... ok
+test_same_indicator_url_distinct_observation_identity (tests.test_core_domain.CoreDomainTests.test_same_indicator_url_distinct_observation_identity) ... ok
+test_similar_titles_do_not_merge_and_cannot_infer_event_time (tests.test_core_domain.CoreDomainTests.test_similar_titles_do_not_merge_and_cannot_infer_event_time) ... ok
+test_split_preserves_history_and_marks_dependents (tests.test_core_domain.CoreDomainTests.test_split_preserves_history_and_marks_dependents) ... ok
+test_ten_reports_share_one_identified_source_chain (tests.test_core_domain.CoreDomainTests.test_ten_reports_share_one_identified_source_chain) ... ok
+test_transitive_reposts_share_one_origin_chain (tests.test_core_domain.CoreDomainTests.test_transitive_reposts_share_one_origin_chain) ... ok
+test_domain_write_and_outbox_atomic (tests.test_platform.PlatformTests.test_domain_write_and_outbox_atomic) ... ok
+test_failed_propagation_retries_without_duplicate (tests.test_platform.PlatformTests.test_failed_propagation_retries_without_duplicate) ... ok
+test_integrity_rejects_missing_reference (tests.test_platform.PlatformTests.test_integrity_rejects_missing_reference) ... ok
+test_migration_failure_rolls_back_schema_and_data (tests.test_platform.PlatformTests.test_migration_failure_rolls_back_schema_and_data) ... ok
+test_version_conflict_and_restart (tests.test_platform.PlatformTests.test_version_conflict_and_restart) ... ok
+
+----------------------------------------------------------------------
+Ran 28 tests in 0.100s
+
+OK

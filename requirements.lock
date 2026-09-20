@@ -1,3 +1,4 @@
 # Runtime: CPython 3.11.x, standard library only. No third-party Python packages.
 # Verified baseline interpreter: CPython 3.11.4, Darwin arm64.
 # Browser: current Safari/Chrome; ES modules, Fetch, SVG. No build or CDN dependency.
+# Free-source transport: macOS /usr/bin/curl 8.7.1 (system trusted TLS); no insecure TLS fallback.
