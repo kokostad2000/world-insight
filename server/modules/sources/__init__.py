@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import fcntl
 import hashlib
+import json
 import re
 import threading
 import time
@@ -17,7 +18,7 @@ UTC = timezone.utc
 FREE_ADAPTERS = {'gdelt', 'rss', 'world_bank'}
 CONFIG_KEYS = {'feed_url', 'query', 'countries', 'indicators', 'topic_ids'}
 SOURCE_FIELDS = {'name', 'adapter', 'domain', 'languages', 'regions', 'license_url', 'checked_at',
-                 'rights', 'enabled', 'budget_daily', 'interval_seconds', 'config'}
+                 'rights', 'enabled', 'budget_daily', 'interval_seconds', 'config', 'retention_days'}
 RUNNING = {'queued', 'running', 'retry'}
 
 
@@ -73,6 +74,7 @@ def seed_sources(store):
                 'license_url': license_url, 'checked_at': '2026-09-20',
                 'rights': dict(rights) if adapter in FREE_ADAPTERS else {**rights, 'fetch': False},
                 'enabled': enabled, 'budget_daily': budget, 'interval_seconds': interval,
+                'retention_days': None,
                 'config': config, 'status': status, 'last_attempt': None, 'last_success': None,
                 'data_as_of': None, 'next_check': None, 'requests_today': 0,
                 'budget_date': None, 'last_error': None, 'coverage_gaps': [],
@@ -86,6 +88,10 @@ def _validate(data, existing=None):
     if unknown:
         raise ApiError(400, 'unknown_fields', '来源配置含不支持的字段。', {'fields': sorted(unknown)})
     source = {**(existing or {}), **{k: v for k, v in data.items() if k in SOURCE_FIELDS}}
+    source.setdefault('retention_days', None)
+    retention = source['retention_days']
+    if retention is not None and (type(retention) is not int or not 1 <= retention <= 36500):
+        raise ApiError(400, 'invalid_retention', '来源内容保留上限须为空或 1—36500 天的整数；由用户核对许可后填写。')
     if source.get('adapter') not in FREE_ADAPTERS | {'manual', 'paid', 'ai'}:
         raise ApiError(400, 'invalid_adapter', '请选择支持的来源适配器。')
     if existing and source['adapter'] != existing['adapter']:
@@ -158,6 +164,44 @@ def _configured(source):
     return source.get('enabled') and source['adapter'] in FREE_ADAPTERS and source.get('rights', {}).get('fetch') and source.get('rights', {}).get('store')
 
 
+def _selected(source, topic):
+    selected = topic.get('source_ids', [])
+    allowed = source.get('config', {}).get('topic_ids', [])
+    return (not selected or source['id'] in selected) and (not allowed or topic['id'] in allowed)
+
+
+def _targets(store, source):
+    topics = store.all('topic')
+    if not topics and not source.get('config', {}).get('topic_ids'):
+        return [None]
+    return [topic for topic in topics if topic.get('status') == 'active' and _selected(source, topic)]
+
+
+def _scope(store, source, topic_id):
+    if topic_id:
+        topic = store.get('topic', topic_id)
+        if topic.get('status') != 'active':
+            raise ApiError(400, 'topic_inactive', '已暂停或归档议题不创建新采集任务。')
+        if not _selected(source, topic):
+            raise ApiError(400, 'source_outside_topic_scope', '此来源不在议题所选来源与来源允许议题的交集中，未安排采集。')
+        return topic
+    if _targets(store, source) != [None]:
+        raise ApiError(400, 'source_outside_topic_scope', '当前来源没有允许全局采集的范围，请选择获准的活动议题。')
+    return {}
+
+
+def _signature(source, topic):
+    # Runtime counters and unrelated research edits must not invalidate a query.
+    scope = {'config': source.get('config', {}), 'rights': source.get('rights', {}),
+             'topic_id': topic.get('id'), 'source_ids': sorted(topic.get('source_ids', [])),
+             'keywords': topic.get('keywords', []), 'exclude_keywords': topic.get('exclude_keywords', [])}
+    return hashlib.sha256(json.dumps(scope, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+
+def _job_id(source_id, topic_id):
+    return 'job-' + hashlib.sha256(f'{source_id}:{topic_id or "global"}'.encode()).hexdigest()[:24]
+
+
 def _topic_query(store, source, topic_id):
     query = source.get('config', {}).get('query', '').strip()
     if topic_id:
@@ -185,17 +229,27 @@ def enqueue(store, source_id, topic_id=None):
         source = store.get('source', source_id)
         if not _configured(source):
             raise ApiError(400, 'source_not_configured', '来源已停用、未配置或仅允许人工登记。')
+        # Source-page refresh expands only to approved topics; no global bypass.
+        if topic_id is None and _targets(store, source) != [None]:
+            targets = _targets(store, source)
+            if not targets:
+                raise ApiError(400, 'source_outside_topic_scope', '没有同时选中此来源且获来源允许的活动议题，未安排采集。')
+            replies = [enqueue(store, source_id, topic['id']) for topic in targets]
+            return {'status': 'queued' if any(x['status'] == 'queued' for x in replies) else 'already_queued',
+                    'job': replies[0]['job'], 'jobs': [x['job'] for x in replies]}
+        topic = _scope(store, source, topic_id)
         query = _topic_query(store, source, topic_id)
-        topic = store.get('topic', topic_id) if topic_id else {}
         if source['adapter'] == 'gdelt' and not query:
             raise ApiError(400, 'query_required', 'GDELT 需要配置查询或选择含关键词的真实议题。')
-        job_id = 'job-' + hashlib.sha256(f'{source_id}:{topic_id or "global"}'.encode()).hexdigest()[:24]
+        job_id = _job_id(source_id, topic_id)
         job = _get(store, 'collection_job', job_id)
-        if job and job['state'] in RUNNING:
+        signature = _signature(source, topic)
+        same_scope = job and job.get('scope_signature') == signature
+        if same_scope and job['state'] in RUNNING:
             return {'status': 'already_queued', 'job': job}
         now = store.now()
-        prior_end = (job or {}).get('covered_until')
-        gaps = list((job or {}).get('coverage_gaps', []))
+        prior_end = job.get('covered_until') if same_scope else None
+        gaps = list(job.get('coverage_gaps', [])) if same_scope else []
         checkpoint = {'page': 1}
         if source['adapter'] == 'gdelt':
             end = _date(now)
@@ -207,12 +261,19 @@ def enqueue(store, source_id, topic_id=None):
                 start = earliest
             checkpoint = {'window_start': _stamp(start), 'window_end': _stamp(min(start + timedelta(hours=6), end)), 'target_end': now, 'page': 1}
         values = {'source_id': source_id, 'topic_id': topic_id, 'query': query,
+                  'scope_signature': signature,
+                  'completed_scope_signature': job.get('completed_scope_signature') if same_scope else None,
+                  'last_success': job.get('last_success') if same_scope else None,
+                  'data_as_of': job.get('data_as_of') if same_scope else None,
+                  'etag': job.get('etag') if same_scope else None,
+                  'last_modified': job.get('last_modified') if same_scope else None,
                   'checkpoint': checkpoint, 'attempts': 0, 'state': 'queued',
                   'keywords': topic.get('keywords', []), 'exclude_keywords': topic.get('exclude_keywords', []),
                   'request_count': (job or {}).get('request_count', 0), 'next_attempt': now,
+                  'cycle_result_count': 0,
                   'coverage_gaps': gaps, 'gap_start': gaps[0]['start'] if gaps else None,
                   'gap_end': gaps[-1]['end'] if gaps else None, 'last_error': None,
-                  'covered_until': prior_end, 'last_result_count': 0}
+                  'covered_until': prior_end, 'last_result_count': job.get('last_result_count', 0) if same_scope else 0}
         if job:
             job = _patch(store, 'collection_job', job, values)
         else:
@@ -222,27 +283,45 @@ def enqueue(store, source_id, topic_id=None):
 
 def coverage(store, topic_id=None):
     sources = []
+    topic = store.get('topic', topic_id) if topic_id else None
+    now = _date(store.now())
     for source in store.all('source'):
-        if topic_id and source.get('config', {}).get('topic_ids') and topic_id not in source['config']['topic_ids']:
-            continue
         if not source.get('enabled') or source['adapter'] not in FREE_ADAPTERS:
             continue
-        status = source['status']
-        now = store.now()
-        if source.get('last_success') and status == 'ready' and _date(now) - _date(source['last_success']) > timedelta(seconds=source['interval_seconds'] * 2):
-            status = 'stale'
-        jobs = [job for job in store.all('collection_job') if job['source_id'] == source['id'] and (not topic_id or job.get('topic_id') in (None, topic_id))]
+        if topic and not _selected(source, topic):
+            continue
+        targets = [topic] if topic else _targets(store, source)
+        if not targets:
+            continue
+        jobs = []
+        for target in targets:
+            job = _get(store, 'collection_job', _job_id(source['id'], target['id'] if target else None))
+            # Old queries/global requests do not establish current topic coverage.
+            if job and job.get('scope_signature') == _signature(source, target or {}):
+                jobs.append(job)
         gaps = [gap for job in jobs for gap in job.get('coverage_gaps', [])]
-        fresh = status == 'ready' and bool(source.get('last_success'))
-        if topic_id and source['adapter'] == 'gdelt':
-            fresh = fresh and any(job.get('covered_until') for job in jobs)
-        checks_pending = any(job['state'] in RUNNING for job in jobs)
+        successes = [job['last_success'] for job in jobs if job.get('last_success')]
+        last_success = max(successes, key=_date) if successes else None
+        fresh_jobs = [job for job in jobs if job.get('last_success')
+                      and now - _date(job['last_success']) <= timedelta(seconds=source['interval_seconds'] * 2)
+                      and not job.get('last_error') and job['state'] != 'cancelled'
+                      and job.get('completed_scope_signature') == job.get('scope_signature')]
+        fresh = len(fresh_jobs) == len(targets)
+        pending = any(job['state'] in RUNNING for job in jobs)
+        status = ('ready' if fresh else ('failed' if any(job.get('last_error') for job in jobs)
+                  else ('stale' if last_success else 'not_configured')))
+        if source['status'] == 'quota_exhausted' and pending:
+            status = 'quota_exhausted'
+        result_counts = [job.get('last_result_count') for job in jobs]
         sources.append({'id': source['id'], 'name': source['name'], 'adapter': source['adapter'],
-            'status': status, 'data_status': 'fresh' if fresh else ('stale' if source.get('last_success') else 'unavailable'),
-            'last_attempt': source.get('last_attempt'), 'last_success': source.get('last_success'),
-            'data_as_of': source.get('data_as_of'), 'next_check': source.get('next_check'),
-            'reason': source.get('last_error'), 'coverage_gaps': gaps,
-            'last_result_count': source.get('last_result_count'), 'check_complete': fresh and not gaps and not checks_pending})
+            'status': status, 'data_status': 'fresh' if fresh else ('stale' if last_success else 'unavailable'),
+            'last_attempt': source.get('last_attempt'), 'last_success': last_success,
+            'data_as_of': max((job.get('data_as_of') for job in jobs if job.get('data_as_of')), default=None),
+            'next_check': source.get('next_check'),
+            'reason': next((job['last_error'] for job in jobs if job.get('last_error')), None),
+            'coverage_gaps': gaps,
+            'last_result_count': sum(result_counts) if len(jobs) == len(targets) and all(x is not None for x in result_counts) else None,
+            'check_complete': fresh and not gaps and not pending})
     complete = sum(item['check_complete'] for item in sources)
     status = 'not_configured' if not sources else ('complete' if complete == len(sources) else ('partial' if any(item['last_success'] for item in sources) else 'unavailable'))
     empty = 'no_matches' if status == 'complete' and all(item['last_result_count'] == 0 for item in sources) else None
@@ -341,25 +420,36 @@ class Scheduler:
 
     def _schedule_due(self):
         now = self.store.now()
-        topics = [topic for topic in self.store.all('topic') if topic.get('status') == 'active']
         for source in self.store.all('source'):
-            if not _configured(source) or (source.get('next_check') and source['next_check'] > now):
+            if not _configured(source):
                 continue
-            config = source.get('config', {})
-            topic_ids = config.get('topic_ids', [])
-            if source['adapter'] == 'gdelt' and not config.get('query') and not topic_ids:
-                topic_ids = [topic['id'] for topic in topics if topic.get('keywords')]
-                if not topic_ids:
+            scheduled = False
+            for topic in _targets(self.store, source):
+                topic_id = topic['id'] if topic else None
+                job = _get(self.store, 'collection_job', _job_id(source['id'], topic_id))
+                if (source.get('next_check') and _date(source['next_check']) > _date(now)
+                        and job and job.get('scope_signature') == _signature(source, topic or {})
+                        and job['state'] != 'cancelled'):
                     continue
-            for topic_id in topic_ids or [None]:
                 try:
                     enqueue(self.store, source['id'], topic_id)
+                    scheduled = True
                 except ApiError as exc:
                     if exc.status not in (400, 404):
                         raise
-            with self.store.transaction():
-                current = self.store.get('source', source['id'])
-                _patch(self.store, 'source', current, {'next_check': _later(now, current['interval_seconds'])})
+            if scheduled:
+                with self.store.transaction():
+                    current = self.store.get('source', source['id'])
+                    _patch(self.store, 'source', current, {'next_check': _later(now, current['interval_seconds'])})
+
+    def _scope_changed(self, source, job):
+        try:
+            topic = _scope(self.store, source, job.get('topic_id'))
+            return job.get('scope_signature') != _signature(source, topic)
+        except ApiError as exc:
+            if exc.status in (400, 404):
+                return True
+            raise
 
     def tick(self, schedule=True):
         """One bounded request. Tests can call with fake fetcher and schedule=False."""
@@ -377,6 +467,8 @@ class Scheduler:
             source = self.store.get('source', job['source_id'])
             if not _configured(source):
                 return _patch(self.store, 'collection_job', job, {'state': 'cancelled', 'last_error': '来源已停用。'})
+            if self._scope_changed(source, job):
+                return _patch(self.store, 'collection_job', job, {'state': 'cancelled', 'last_error': '议题或来源采集范围已改变；旧任务取消，未发出请求。'})
             # Source-wide spacing and request budget include all topics, manual calls and retries.
             if source['adapter'] == 'gdelt' and source.get('last_attempt') and _date(now) - _date(source['last_attempt']) < timedelta(seconds=6):
                 return _patch(self.store, 'collection_job', job, {'state': 'retry', 'next_attempt': _later(source['last_attempt'], 6)})
@@ -391,7 +483,9 @@ class Scheduler:
         if in_maintenance(self.store):
             return job
         try:
-            url, headers = adapters.request_for(source, job)
+            # Conditional responses are valid only for this query/topic snapshot.
+            request_source = {**source, 'etag': job.get('etag'), 'last_modified': job.get('last_modified')}
+            url, headers = adapters.request_for(request_source, job)
             response = self.fetcher(url, headers)
             parsed = adapters.parse(source, job, response, now)
             return self._succeed(source, job, parsed, now)
@@ -403,14 +497,17 @@ class Scheduler:
             return job
         if self.evidence_sink is None or self.observation_sink is None:
             from server.modules import knowledge
-            evidence_sink = self.evidence_sink or knowledge.ingest
+            evidence_sink = self.evidence_sink or (lambda store, data: knowledge.ingest(store, data, origin='collector'))
             observation_sink = self.observation_sink or knowledge.upsert_observation
         else:
             evidence_sink, observation_sink = self.evidence_sink, self.observation_sink
         with self.store.transaction():
             current = self.store.get('source', source['id'])
             current_job = self.store.get('collection_job', job['id'])
-            if not _configured(current) or current.get('config') != source.get('config') or current.get('rights') != source.get('rights'):
+            if current_job.get('scope_signature') != job.get('scope_signature'):
+                return current_job
+            if (not _configured(current) or self._scope_changed(current, job)
+                    or current.get('config') != source.get('config') or current.get('rights') != source.get('rights')):
                 return _patch(self.store, 'collection_job', current_job, {'state': 'cancelled', 'last_error': '请求期间来源配置或许可发生变化，本批次未入库。'})
             versions = {}
             for item in parsed['evidence']:
@@ -438,15 +535,23 @@ class Scheduler:
             if source['adapter'] == 'rss' and job.get('covered_until') and _date(now) - _date(job['covered_until']) > timedelta(seconds=source['interval_seconds'] * 2):
                 gaps.append({'start': job['covered_until'], 'end': now, 'reason': 'RSS 仅提供当前 feed，停机区间已补读可见条目，历史完整性无法保证。'})
             patch = {'state': 'complete' if complete else 'queued', 'checkpoint': checkpoint,
-                'last_error': None, 'attempts': 0, 'last_result_count': len(parsed['evidence']), 'last_success': now,
+                'last_error': None, 'attempts': 0,
+                'last_result_count': current_job.get('last_result_count', 0) if parsed['not_modified'] else job.get('cycle_result_count', 0) + len(parsed['evidence']),
+                'cycle_result_count': job.get('cycle_result_count', 0) + len(parsed['evidence']),
+                'last_success': now, 'data_as_of': current_job.get('data_as_of') if parsed['not_modified'] else parsed['data_as_of'],
                 'next_attempt': _later(now, 6 if source['adapter'] == 'gdelt' else 1),
                 'coverage_gaps': gaps, 'gap_start': gaps[0]['start'] if gaps else None,
                 'gap_end': gaps[-1]['end'] if gaps else None}
             if complete:
                 patch['covered_until'] = now
+                patch['completed_scope_signature'] = job['scope_signature']
+            for key in ('etag', 'last_modified'):
+                if parsed.get(key):
+                    patch[key] = parsed[key]
             job = _patch(self.store, 'collection_job', current_job, patch)
             values = {'status': 'ready', 'last_success': now, 'last_error': None,
-                      'data_as_of': parsed['data_as_of'], 'last_result_count': current.get('last_result_count', 0) if parsed['not_modified'] else len(parsed['evidence'])}
+                      'data_as_of': current.get('data_as_of') if parsed['not_modified'] else parsed['data_as_of'],
+                      'last_result_count': job['last_result_count']}
             for key in ('etag', 'last_modified'):
                 if parsed.get(key):
                     values[key] = parsed[key]
@@ -464,6 +569,10 @@ class Scheduler:
         with self.store.transaction():
             current = self.store.get('source', source['id'])
             current_job = self.store.get('collection_job', job['id'])
+            if current_job.get('scope_signature') != job.get('scope_signature'):
+                return current_job
+            if not _configured(current) or self._scope_changed(current, job):
+                return _patch(self.store, 'collection_job', current_job, {'state': 'cancelled', 'last_error': '请求期间采集范围已改变，旧任务已取消。'})
             _patch(self.store, 'source', current, {'status': 'failed', 'last_error': message, 'last_error_code': code, 'next_check': _later(now, delay)})
             job = _patch(self.store, 'collection_job', current_job, {'state': 'retry', 'last_error': message, 'error_code': code, 'next_attempt': _later(now, delay)})
             if current.get('status') != 'failed':

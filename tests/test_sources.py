@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
-from server.modules import sources
+from server.modules import research, sources
 from server.modules.sources import adapters
 from server.platform.errors import ApiError
 from server.platform.store import Store
@@ -53,6 +53,145 @@ class SourceTests(unittest.TestCase):
         for item in self.store.all('source'):
             if item['adapter'] in sources.FREE_ADAPTERS and item['id'] != sid:
                 self.update_source(item['id'], enabled=False)
+
+    def topic(self, source_ids=None, **patch):
+        return research.handle(self.store, 'POST', ['topics'], {
+            'question': '[来源范围夹具] 哪些材料发生变化？', 'is_fixture': True,
+            'source_ids': source_ids or [], 'keywords': ['Fixture'], **patch}, {})
+
+    def update_topic(self, topic, **patch):
+        old = self.store.get('topic', topic['id'])
+        return research.handle(self.store, 'PATCH', ['topics', topic['id']],
+                               {'expected_version': old['version'], **patch}, {})
+
+    def test_selected_sources_constrain_schedule_and_topic_coverage(self):
+        topic = self.topic(['source-fed'])
+        self.scheduler()._schedule_due()
+        jobs = self.store.all('collection_job')
+        self.assertEqual([(j['source_id'], j['topic_id']) for j in jobs], [('source-fed', topic['id'])])
+        self.assertEqual([x['id'] for x in sources.coverage(self.store, topic['id'])['sources']], ['source-fed'])
+        self.assertEqual(self.calls, [])
+        for sid in ('source-gdelt', 'source-world-bank'):
+            with self.assertRaises(ApiError) as rejected:
+                sources.handle(self.store, 'POST', ['sources', sid, 'refresh'], {'topic_id': topic['id']}, {})
+            self.assertEqual(rejected.exception.code, 'source_outside_topic_scope')
+
+    def test_empty_selection_defaults_to_enabled_free_sources_only(self):
+        topic = self.topic()
+        self.update_source('source-world-bank', enabled=False)
+        self.scheduler()._schedule_due()
+        self.assertEqual({(j['source_id'], j['topic_id']) for j in self.store.all('collection_job')},
+                         {('source-fed', topic['id']), ('source-gdelt', topic['id'])})
+        self.assertEqual({x['id'] for x in sources.coverage(self.store, topic['id'])['sources']},
+                         {'source-fed', 'source-gdelt'})
+
+    def test_source_topic_allowlist_intersection_and_unscoped_refresh(self):
+        selected = self.topic(['source-fed'])
+        excluded = self.topic(['source-fed'])
+        other_source = self.topic(['source-world-bank'])
+        source = self.store.get('source', 'source-fed')
+        self.update_source(source['id'], config={**source['config'], 'topic_ids': [selected['id'], other_source['id']]})
+        result = sources.handle(self.store, 'POST', ['sources', source['id'], 'refresh'], {}, {})
+        self.assertEqual([j['topic_id'] for j in result['jobs']], [selected['id']])
+        self.assertEqual(sources.coverage(self.store, excluded['id'])['sources'], [])
+        for topic in (excluded, other_source):
+            with self.assertRaises(ApiError) as rejected:
+                sources.enqueue(self.store, source['id'], topic['id'])
+            self.assertEqual(rejected.exception.code, 'source_outside_topic_scope')
+        self.update_topic(selected, status='paused')
+        with self.assertRaises(ApiError) as rejected:
+            sources.enqueue(self.store, source['id'])
+        self.assertEqual(rejected.exception.code, 'source_outside_topic_scope')
+        self.assertEqual(len(self.store.all('collection_job')), 1)
+
+    def test_source_page_refresh_fans_out_only_to_selected_active_topics(self):
+        first, second = self.topic(['source-fed']), self.topic(['source-fed'])
+        self.topic(['source-world-bank'])
+        self.topic(['source-fed'], status='archived')
+        reply = sources.enqueue(self.store, 'source-fed')
+        self.assertEqual({j['topic_id'] for j in reply['jobs']}, {first['id'], second['id']})
+        self.assertEqual(sources.enqueue(self.store, 'source-fed')['status'], 'already_queued')
+        self.assertEqual(len(self.store.all('collection_job')), 2)
+        with self.assertRaises(ApiError):
+            sources.enqueue(self.store, 'source-gdelt')
+
+    def test_scope_edit_cancels_queued_work_before_budget_or_network(self):
+        topic = self.topic(['source-fed'])
+        old = sources.enqueue(self.store, 'source-fed', topic['id'])['job']
+        self.update_topic(topic, source_ids=['source-world-bank'])
+        job = self.scheduler().tick(False)
+        self.assertEqual(job['state'], 'cancelled')
+        self.assertEqual(job['checkpoint'], old['checkpoint'])
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self.store.get('source', 'source-fed')['requests_today'], 0)
+        self.assertNotIn('source-fed', [x['id'] for x in sources.coverage(self.store, topic['id'])['sources']])
+
+    def test_scope_edit_during_request_discards_response_without_ingestion(self):
+        topic = self.topic(['source-fed'])
+        sources.enqueue(self.store, 'source-fed', topic['id'])
+        def upstream(url, headers):
+            self.update_topic(topic, source_ids=['source-world-bank'])
+            return adapters.Response(200, RSS)
+        job = self.scheduler(fetcher=upstream).tick(False)
+        self.assertEqual(job['state'], 'cancelled')
+        self.assertEqual(self.store.all('evidence'), [])
+        self.assertIsNone(job.get('covered_until'))
+        self.assertEqual(self.store.get('source', 'source-fed')['requests_today'], 1)
+
+    def test_topic_coverage_does_not_reuse_other_topic_success_or_etag(self):
+        first, second = self.topic(['source-fed']), self.topic(['source-fed'])
+        sources.enqueue(self.store, 'source-fed', first['id'])
+        self.scheduler(adapters.Response(200, RSS, {'etag': '"fixture-first"'})).tick(False)
+        self.assertEqual(sources.coverage(self.store, first['id'])['coverage_status'], 'complete')
+        self.assertEqual(sources.coverage(self.store, second['id'])['coverage_status'], 'unavailable')
+        self.assertEqual(sources.coverage(self.store)['coverage_status'], 'partial')
+        sources.enqueue(self.store, 'source-fed', second['id'])
+        self.scheduler().tick(False)
+        self.assertNotIn('If-None-Match', self.calls[-1][1])
+        self.assertEqual(sources.coverage(self.store, second['id'])['coverage_status'], 'complete')
+
+    def test_changed_query_requires_new_snapshot_before_complete(self):
+        topic = self.topic(['source-fed'])
+        sources.enqueue(self.store, 'source-fed', topic['id'])
+        self.scheduler(adapters.Response(200, RSS, {'etag': '"old-scope"'})).tick(False)
+        self.update_source('source-fed', next_check='2026-09-21T00:00:00Z')
+        self.update_topic(topic, keywords=['different fixture'])
+        self.assertEqual(sources.coverage(self.store, topic['id'])['coverage_status'], 'unavailable')
+        scheduler = self.scheduler()
+        scheduler._schedule_due()
+        job = self.store.all('collection_job')[0]
+        self.assertEqual(job['state'], 'queued')
+        self.assertIsNone(job['covered_until'])
+        self.assertIsNone(job['etag'])
+        scheduler.tick(False)
+        result = sources.coverage(self.store, topic['id'])
+        self.assertEqual(result['coverage_status'], 'complete')
+        self.assertEqual(result['empty_reason'], 'no_matches')
+        self.assertNotIn('If-None-Match', self.calls[-1][1])
+
+    def test_new_topic_does_not_inherit_global_coverage_or_queued_work(self):
+        global_job = sources.enqueue(self.store, 'source-fed')['job']
+        topic = self.topic(['source-fed'])
+        self.assertEqual(self.scheduler().tick(False)['state'], 'cancelled')
+        self.assertEqual(self.calls, [])
+        self.scheduler()._schedule_due()
+        jobs = self.store.all('collection_job')
+        self.assertTrue(any(j['id'] != global_job['id'] and j['topic_id'] == topic['id'] for j in jobs))
+        self.assertEqual(sources.coverage(self.store, topic['id'])['coverage_status'], 'unavailable')
+
+    def test_last_empty_page_does_not_erase_snapshot_matches(self):
+        self.only_source('source-world-bank')
+        sources.enqueue(self.store, 'source-world-bank')
+        first = [{'page': 1, 'pages': 2, 'lastupdated': '2026-07-13'}, [
+            {'indicator': {'id': 'SP.POP.TOTL'}, 'countryiso3code': 'CHN', 'date': '2025', 'value': 100}]]
+        self.scheduler(adapters.Response(200, json.dumps(first).encode())).tick(False)
+        self.clock = '2026-09-20T15:01:00Z'
+        last = [{'page': 2, 'pages': 2, 'lastupdated': '2026-07-13'}, []]
+        self.scheduler(adapters.Response(200, json.dumps(last).encode())).tick(False)
+        result = sources.coverage(self.store)
+        self.assertEqual(result['coverage_status'], 'complete')
+        self.assertEqual(result['sources'][0]['last_result_count'], 1)
+        self.assertIsNone(result['empty_reason'])
 
     def test_seed_is_local_idempotent_preserves_config_and_disables_paid(self):
         self.update_source('source-fed', budget_daily=2)
@@ -315,6 +454,34 @@ class SourceTests(unittest.TestCase):
         self.assertEqual(conflict.exception.status, 409)
         with self.assertRaises(ApiError):
             sources.handle(self.store, 'GET', ['sources'], {}, {'limit': 'oops'})
+
+    def test_retention_limit_is_explicit_nullable_integer_and_versioned(self):
+        source = self.store.get('source', 'source-fed')
+        self.assertIsNone(source['retention_days'])
+        for invalid in (0, -1, 36501, True, 1.5, '30'):
+            with self.assertRaises(ApiError) as rejected:
+                sources.handle(self.store, 'PATCH', ['sources', source['id']],
+                               {'expected_version': source['version'], 'retention_days': invalid}, {})
+            self.assertEqual(rejected.exception.code, 'invalid_retention')
+        for value in (1, 30, 36500, None):
+            source = sources.handle(self.store, 'PATCH', ['sources', source['id']],
+                                    {'expected_version': source['version'], 'retention_days': value}, {})
+            self.assertEqual(source['retention_days'], value)
+        self.assertEqual([x['retention_days'] for x in self.store.history('source', source['id'])],
+                         [None, 1, 30, 36500, None])
+
+    def test_default_evidence_sink_explicitly_marks_collector_origin(self):
+        sources.enqueue(self.store, 'source-fed')
+        from server.modules import knowledge
+        calls = []
+        original = knowledge.ingest
+        def ingest(store, data, *, origin):
+            calls.append(origin)
+            return original(store, data)
+        with patch.object(knowledge, 'ingest', ingest):
+            job = sources.Scheduler(self.store, fetcher=lambda *_: adapters.Response(200, RSS)).tick(False)
+        self.assertEqual(job['state'], 'complete')
+        self.assertEqual(calls, ['collector'])
 
 
 if __name__ == '__main__':
