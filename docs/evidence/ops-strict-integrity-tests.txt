@@ -1,0 +1,24 @@
+test_backup_disk_failure_keeps_previous_valid_package (tests.test_ops_lifecycle.OperationsTests.test_backup_disk_failure_keeps_previous_valid_package) ... ok
+test_backup_rejects_non_evidence_orphan_references (tests.test_ops_lifecycle.OperationsTests.test_backup_rejects_non_evidence_orphan_references) ... ok
+test_corrupt_and_incompatible_backup_never_replace_existing (tests.test_ops_lifecycle.OperationsTests.test_corrupt_and_incompatible_backup_never_replace_existing) ... ok
+test_directory_permission_and_tampered_manifest_are_blocked (tests.test_ops_lifecycle.OperationsTests.test_directory_permission_and_tampered_manifest_are_blocked) ... ok
+test_dirty_and_untracked_update_protection (tests.test_ops_lifecycle.OperationsTests.test_dirty_and_untracked_update_protection) ... ok
+test_failing_migration_restores_program_data_and_attachments (tests.test_ops_lifecycle.OperationsTests.test_failing_migration_restores_program_data_and_attachments) ... ok
+test_interrupted_update_recovers_and_does_not_duplicate_migrations (tests.test_ops_lifecycle.OperationsTests.test_interrupted_update_recovers_and_does_not_duplicate_migrations) ... ok
+test_local_preflight_port_occupied_and_missing_data_identity (tests.test_ops_lifecycle.OperationsTests.test_local_preflight_port_occupied_and_missing_data_identity) ... ok
+test_new_code_directory_reopens_existing_data_and_normal_stop_is_safe (tests.test_ops_lifecycle.OperationsTests.test_new_code_directory_reopens_existing_data_and_normal_stop_is_safe) ... ok
+test_real_start_reuse_stop_and_restart_edit (tests.test_ops_lifecycle.OperationsTests.test_real_start_reuse_stop_and_restart_edit) ... ok
+test_restore_does_not_treat_unbound_personal_files_as_empty (tests.test_ops_lifecycle.OperationsTests.test_restore_does_not_treat_unbound_personal_files_as_empty) ... ok
+test_restore_rejects_missing_read_state_version_before_touching_target (tests.test_ops_lifecycle.OperationsTests.test_restore_rejects_missing_read_state_version_before_touching_target) ... ok
+test_running_backup_and_empty_restore_continue_edit (tests.test_ops_lifecycle.OperationsTests.test_running_backup_and_empty_restore_continue_edit) ... ok
+test_script_and_command_entrypoints_in_chinese_space_path (tests.test_ops_lifecycle.OperationsTests.test_script_and_command_entrypoints_in_chinese_space_path) ... ok
+test_secret_config_not_echoed_and_missing_dependency_blocks (tests.test_ops_lifecycle.OperationsTests.test_secret_config_not_echoed_and_missing_dependency_blocks) ... ok
+test_successful_schema_migration_can_explicitly_roll_back_without_new_writes (tests.test_ops_lifecycle.OperationsTests.test_successful_schema_migration_can_explicitly_roll_back_without_new_writes) ... ok
+test_successful_update_selection_and_new_write_rollback_guard (tests.test_ops_lifecycle.OperationsTests.test_successful_update_selection_and_new_write_rollback_guard) ... ok
+test_target_health_failure_rolls_back_and_download_failure_is_safe (tests.test_ops_lifecycle.OperationsTests.test_target_health_failure_rolls_back_and_download_failure_is_safe) ... ok
+test_upgrade_backup_failure_aborts_before_migration (tests.test_ops_lifecycle.OperationsTests.test_upgrade_backup_failure_aborts_before_migration) ... ok
+
+----------------------------------------------------------------------
+Ran 19 tests in 23.319s
+
+OK

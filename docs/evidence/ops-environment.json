@@ -1,0 +1,15 @@
+{
+  "recorded_at": "2026-09-20T15:30:51.108579+00:00",
+  "system": "Darwin",
+  "release": "24.6.0",
+  "machine": "arm64",
+  "python": "3.11.4 (v3.11.4:d2340ef257, Jun  6 2023, 19:15:51) [Clang 13.0.0 (clang-1300.0.29.30)]",
+  "macos": "ProductName:\t\tmacOS\nProductVersion:\t\t15.6.1\nBuildVersion:\t\t24G90\n",
+  "ports": [
+    8874,
+    8875
+  ],
+  "database": "SQLite 3.42.0",
+  "fixture_scope": "TemporaryDirectory, copied Chinese/space path code repo, no collector or network",
+  "worktree": "/Users/zhanglike/Desktop/world-insight/.worktrees/ops"
+}

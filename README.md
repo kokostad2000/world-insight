@@ -1,11 +1,109 @@
 # 国际局势研究看板 · World Insight
 
-个人、中文、本地运行的国际局势研究工具。研究主线：议题 → 材料与出处 → 说法／事件 → 判断／情景 → 变化与复盘。
+在自己的 Mac 上整理议题、材料、说法、事件和研究判断。所有研究数据保存在本机；付费数据、云端 AI、航空和船舶能力默认关闭。已审阅表示用户完成审阅，不表示系统证明了真相。
 
-当前正在按 [PRD](docs/PRD.md) 开发。进度和真实验证范围见 [PROGRESS](docs/PROGRESS.md)，未完成项不得当作交付。
+项目需求与验收边界分别见 [PRD](docs/PRD.md)、[验收矩阵](docs/ACCEPTANCE.md)、[当前进度](docs/PROGRESS.md)。七天真实试运行属于 PRD M4；工程测试不会替代七天观察。私有代码仓为 [kokostad2000/world-insight](https://github.com/kokostad2000/world-insight)，本轮开发仅本地提交，未授权推送。
 
-代码仓：https://github.com/kokostad2000/world-insight（私有）。开发提交仅保存在本机，未经授权不推送。
+## 首次准备（macOS）
 
-技术基线：Python 3.11、SQLite、原生浏览器 ES Modules，无付费服务、AI、Docker 或 Node 构建依赖。最终启动／停止、备份／恢复与更新命令将随实际脚本交付补齐。
+需要 CPython **3.11.x**、Git，以及支持 ES Modules/Fetch/SVG 的 Safari 或 Chrome。无需 Node、Docker 或第三方 Python 包。系统 curl 用于免费源联网；缺失时人工研究与历史阅读仍可运行。已核对的运行基线见 `requirements.lock`；当前平台验收记录见 `docs/evidence/ops-*`。
 
-研究数据、密钥、日志和备份不进入 Git。默认数据目录计划为 `~/Library/Application Support/World Insight`，首次使用需明确初始化；开发和验收始终使用独立测试数据。
+下载完整代码后，在终端进入项目目录（包含中文或空格的路径也可以）：
+
+```bash
+cd "/你的目录/world-insight"
+python3.11 --version
+./scripts/check-config.sh --init
+./scripts/start.sh --init
+```
+
+`--init` 明确同意创建新的研究数据目录，**不覆盖**已有 `.env` 或数据库。已有研究应先在 `.env` 指定原数据目录，使用不带 `--init` 的启动命令；不存在的原数据库不会被静默替换为空库。第一次启动依据 `.env.example` 创建配置，未填写可选密钥也可运行。
+
+如果 Python 3.11 使用不同命令名，可先设置 `export WORLD_INSIGHT_PYTHON=/完整路径/python3.11`。所有脚本都使用同一个解释器；检查失败会显示具体阻断原因和修复方式。
+
+默认地址是 `http://127.0.0.1:8766`。只有本地核心健康检查通过后才打开浏览器；第三方来源离线不阻止已有资料阅读。
+
+## 日常启动、停止与数据位置
+
+双击 `start.command` 启动并打开页面；双击 `stop.command` 正常停止。等价终端命令：
+
+```bash
+./scripts/start.sh
+./scripts/status.sh
+./scripts/stop.sh
+```
+
+重复启动复用同一个实例，不创建第二个服务或采集器。停止只针对实例身份、数据目录和进程均匹配的本项目服务，不停止占用相同端口的其他程序。端口冲突时在 `.env` 设置 `WORLD_INSIGHT_PORT` 后重试。
+
+默认研究目录：`~/Library/Application Support/World Insight`。默认备份目录位于其同级 `World Insight Backups`。数据库、附件、缓存、日志分开保存；程序更新不删除研究数据。更换代码目录后继续指定原数据目录即可，必须核对其 `instance.json` 和数据库均存在。
+
+```bash
+./scripts/start.sh --data-dir "/明确选择的研究目录" --port 8766
+```
+
+`.env`、数据库、附件、日志、缓存与备份均被 Git 忽略。GitHub 管理代码，不能替代研究数据备份。不要将真实密钥写进研究文本或手工纳入 Git。应用不会发送外部邮件或公开发布看板。
+
+## 配置检查与网络
+
+```bash
+./scripts/check-config.sh
+# 用户明确选择后，另行探测免费源；默认检查不联网：
+./scripts/check-config.sh --probe-network --probe-sources rss,world_bank,gdelt
+```
+
+本地检查分为通过、警告、阻断，核对 Python、Git/curl、端口、目录可写性、磁盘空间、实例绑定和数据库兼容性；阻断退出码非零。网络结果单独显示。源失败、额度耗尽或未配置会在页面标记，现有研究和人工登记继续可用，不回退到付费提供者。
+
+离线开发验收可用 `--no-scheduler --no-browser`；它只作用于本次进程，不伪造采集成功。实际连接来源、部署网络覆盖和七天观察分别记录，不能从单元测试推断。
+
+## 备份与恢复
+
+运行中可备份。使用 SQLite 一致性快照，复制允许保存的附件并校验 SHA256、记录数量和版本引用。成功前只有 `.partial` 文件；失败不会覆盖以前的有效备份。
+
+```bash
+./scripts/backup.sh
+# 或选择尚不存在的输出路径：
+./scripts/backup.sh --output "/备份位置/研究资料.wibackup"
+```
+
+默认备份**不包含密钥、认证凭据、完整 `.env`、缓存或运行日志**。来源非敏感配置和研究记录随数据库保存；恢复到另一机器后需自行重新填写可选凭据。备份目录与恢复点不自动轮转删除。
+
+先停止目标实例；恢复默认只验证并显示预览，已有数据必须额外明确选择替换：
+
+```bash
+./scripts/stop.sh
+./scripts/restore.sh "/备份位置/研究资料.wibackup" --data-dir "/恢复后的研究目录"
+# 恢复到空目录：
+./scripts/restore.sh "/备份位置/研究资料.wibackup" --data-dir "/恢复后的研究目录" --apply
+# 替换已有目录：先核对预览，再明确选择；自动保留当前备份及直接恢复点：
+./scripts/restore.sh "/备份位置/研究资料.wibackup" --data-dir "/已有研究目录" --apply --replace
+./scripts/start.sh --data-dir "/恢复后的研究目录"
+```
+
+损坏、清单不一致、不安全路径或高于程序兼容版本的备份均被拒绝。恢复不覆盖当前机器 `.env`。恢复后应在页面检查原议题、材料历史、判断和阅读状态，并继续编辑确认；压缩包能生成本身不足以证明恢复可用。
+
+## 更新、失败恢复与回退
+
+更新需要**本地已有的明确 Git 提交或标签**；脚本不自动拉取、不推送、不切换原工作区。需要下载新代码时由用户自行授权并获取。工作区存在已修改或未跟踪文件时默认暂停；先保存/提交自己的改动，或使用另一个干净代码目录，不执行强制重置或清理。
+
+```bash
+./scripts/update.sh --target <明确提交或标签> --dry-run
+./scripts/update.sh --target <明确提交或标签>
+```
+
+目标代码先在数据目录同级 `World Insight Programs/<提交>` 准备，检查依赖与数据库兼容性；准备失败不修改研究数据。随后进入维护、停止采集和写入、建立升级前备份、运行目标迁移、实际健康检查和旧议题读取。通过后将当前选择保存在数据目录 `active-program.json`；以后从原目录双击启动也会运行这一已选版本，绑定同一数据目录。
+
+迁移或切换前健康检查失败时恢复旧数据库、附件及旧程序选择。更新中被断电/终止时保留维护状态及 `updates/<更新ID>.json`，按记录恢复：
+
+```bash
+./scripts/update.sh --recover <更新ID>
+```
+
+已成功更新后的显式回退：
+
+```bash
+./scripts/update.sh --rollback <更新ID>
+```
+
+回退前保存当前状态并检查更新后是否产生新写入。存在新记录或修订时拒绝用旧快照覆盖，保留当前备份，需另行核对兼容性或迁移新记录。程序和数据库兼容性不能只靠“退代码”解决。
+
+详细目录、故障处理、维护状态及验证范围见 [本地运行说明](docs/LOCAL_OPERATIONS.md)。
