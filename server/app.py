@@ -111,7 +111,9 @@ def handler_class(app):
                         if length:
                             if not self.headers.get('Content-Type','').startswith('application/json'):
                                 raise ApiError(415,'json_required','请使用 JSON 请求')
-                            try: body = json.loads(self.rfile.read(length))
+                            def invalid_number(value):
+                                raise ValueError('Non-finite JSON number')
+                            try: body = json.loads(self.rfile.read(length),parse_constant=invalid_number)
                             except (ValueError,UnicodeError): raise ApiError(400,'invalid_json','JSON 格式错误')
                             if not isinstance(body,dict): raise ApiError(400,'object_required','请求应为 JSON 对象')
                     query = {k:v[-1] for k,v in parse_qs(parsed.query,keep_blank_values=True).items()}
