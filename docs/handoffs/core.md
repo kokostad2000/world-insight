@@ -47,3 +47,9 @@ Core behavior coverage: persisted create/edit/reopen/export, stale-window 409, c
 1. Root platform commit 762b89a (already merged into dev/core).
 2. This core commit (domain code/tests/handoff only).
 3. Integrate activity, web and sources; exercise HTTP/browser correction, due dates, version conflicts and persistence before broad acceptance claims.
+
+## Follow-up before M7 handoff
+
+Implemented persistent `evidence_alias` (M3-only internal kind, stable SHA256 identity key) through Store; channels without fingerprints after restart resolve to the same evidence, and split rebinds aliases to selected records. No schema migration is needed for this generic Store kind. Root should register internal ownership in the shared contract. `source_counts` now follows the registered ancestor chain and distinguishes unknown independence from a known root. These supersede the two corresponding remaining items above.
+
+Executed `python3 -m unittest tests.test_core_domain tests.test_platform -v`: 27 passed, 0.099s (22 core + 5 platform). Two added tests cover persistent alternate channel identity after restart and transitive repost chain count. Performance/browser/live-source are still unverified here.
