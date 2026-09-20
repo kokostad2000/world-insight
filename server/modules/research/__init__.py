@@ -44,7 +44,7 @@ def _research_base(store, item, old):
         fail("研究记录须关联议题")
     item["status"] = choice(item.get("status", "draft"), STATUSES, "status")
     for key in ("evidence_version_ids", "opposing_evidence_version_ids"):
-        item[key] = references(store, item.get(key, []), key)
+        item[key] = references(store, item.get(key, []), key, allow_deleted=(old or {}).get(key, []))
     item["assumptions"] = strings(item.get("assumptions", []), "assumptions")
     item["valid_until"] = temporal(item.get("valid_until"), "valid_until")
     item["review_date"] = temporal(item.get("review_date"), "review_date")
@@ -120,7 +120,7 @@ def _path(store, data, old=None):
         if not isinstance(edge, dict) or edge.get("from") not in ids or edge.get("to") not in ids or edge["from"] == edge["to"]:
             fail("路径关系的 from/to 须指向两个不同的已登记节点")
         status = choice(edge.get("status", "unverified"), {"observed", "assumption", "unverified"}, "edge.status")
-        refs = references(store, edge.get("evidence_version_ids", []))
+        refs = references(store, edge.get("evidence_version_ids", []), allow_deleted=[ref for prior in (old or {}).get("edges", []) for ref in prior.get("evidence_version_ids", [])])
         if status in {"observed", "assumption"} and not refs:
             fail("已观察关联和有依据的分析假设须引用证据；缺证据请标待验证")
         edges.append({"from": edge["from"], "to": edge["to"], "status": status, "evidence_version_ids": refs, "note": text(edge.get("note", ""), "edge.note"), "needs_review": bool(edge.get("needs_review", False))})
@@ -143,7 +143,7 @@ def _review(store, data, old=None):
     item["rationale"] = text(item["rationale"], "rationale", True)
     item["author"] = text(item["author"], "author", True)
     item["next_review_date"] = temporal(item.get("next_review_date"), "next_review_date")
-    item["evidence_version_ids"] = references(store, item["evidence_version_ids"])
+    item["evidence_version_ids"] = references(store, item["evidence_version_ids"], allow_deleted=(old or {}).get("evidence_version_ids", []))
     _reason(item, old)
     return {k: v for k, v in item.items() if k in REVIEW_FIELDS}
 
@@ -298,6 +298,17 @@ def on_event(store, event):
                 store.publish("research.needs_review", row["id"], {**_payload(revised, kind), "reason": reason, "source_event_id": event["id"], "evidence_id": evidence_id, "evidence_version_ids": sorted(affected)}, event_id=f'research-review:{event["id"]}:{kind}:{row["id"]}')
 
 
+def lifecycle_change(store, kind, record_id, expected_version, deleted, reason):
+    if kind not in COLLECTIONS.values():
+        fail("不是研究模块拥有的记录")
+    text(reason, "reason", True)
+    with store.transaction():
+        revised = store.update(kind, record_id, {"deleted": bool(deleted), "deleted_at": store.now() if deleted else None,
+            "deleted_reason": reason, "restored_at": None if deleted else store.now()}, expected_version)
+        store.publish("record.deleted" if deleted else "record.restored", record_id, {**_payload(revised, kind), "reason": reason})
+        return revised
+
+
 def handle(store, method, segments, body, query):
     if segments == ["exports"] and method == "GET":
         return export(store, query)
@@ -335,6 +346,8 @@ def handle(store, method, segments, body, query):
                     text(clean.get("change_reason"), "change_reason", True)
                 with store.transaction():
                     old = store.get(kind, record_id)
+                    if old.get("deleted"):
+                        fail("记录已在回收站，请先恢复后编辑", "record_deleted")
                     prepared = prepare(store, clean, old)
                     if old.get("status") == "needs_review" and prepared.get("status") == "reviewed":
                         prepared.update({"review_reason": None, "review_evidence_version_ids": [], "review_resolved_at": store.now(), "review_resolution_reason": clean.get("change_reason")})
