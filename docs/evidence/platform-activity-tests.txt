@@ -1,0 +1,14 @@
+test_domain_write_and_outbox_atomic (tests.test_platform.PlatformTests.test_domain_write_and_outbox_atomic) ... ok
+test_failed_propagation_retries_without_duplicate (tests.test_platform.PlatformTests.test_failed_propagation_retries_without_duplicate) ... ok
+test_integrity_rejects_missing_reference (tests.test_platform.PlatformTests.test_integrity_rejects_missing_reference) ... ok
+test_migration_failure_rolls_back_schema_and_data (tests.test_platform.PlatformTests.test_migration_failure_rolls_back_schema_and_data) ... ok
+test_version_conflict_and_restart (tests.test_platform.PlatformTests.test_version_conflict_and_restart) ... ok
+test_brief_preserves_missing_evidence_and_correction_flag (tests.test_activity.ActivityTests.test_brief_preserves_missing_evidence_and_correction_flag) ... ok
+test_only_displayed_versions_marked_read_and_new_changes_remain (tests.test_activity.ActivityTests.test_only_displayed_versions_marked_read_and_new_changes_remain) ... ok
+test_read_state_does_not_clear_research_todo (tests.test_activity.ActivityTests.test_read_state_does_not_clear_research_todo) ... ok
+test_updated_version_not_silently_read (tests.test_activity.ActivityTests.test_updated_version_not_silently_read) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 0.026s
+
+OK
