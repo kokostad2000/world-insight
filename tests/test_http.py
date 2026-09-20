@@ -11,7 +11,7 @@ from server.platform.config import load_config
 from server.platform.store import Store
 
 
-class LocalHttpTests(unittest.TestCase):
+class LocalHttpCase(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.data=Path(self.tmp.name)
         self.config=load_config(data_dir=self.data,port=8870)
@@ -28,6 +28,20 @@ class LocalHttpTests(unittest.TestCase):
         conn.request(method,path,body=content,headers={'Content-Type':'application/json',**(headers or {})})
         response=conn.getresponse();status=response.status;data=response.read();conn.close()
         return status,json.loads(data)
+
+
+class LocalHttpTests(LocalHttpCase):
+    def test_browser_keep_alive_does_not_block_service_shutdown(self):
+        conn=http.client.HTTPConnection('127.0.0.1',self.server.server_port,timeout=3)
+        conn.request('GET','/api/health',headers={'Connection':'keep-alive'})
+        response=conn.getresponse();response.read()
+        self.assertEqual(response.getheader('Connection'),'close')
+        # Keep the browser client object alive while the server shuts down.
+        import time
+        start=time.monotonic();self.server.shutdown();self.server.server_close()
+        self.assertLess(time.monotonic()-start,1)
+        conn.close()
+
     def test_health_and_disabled_capabilities(self):
         self.assertEqual(self.request('/api/health')[1]['instance_id'],'http-fixture')
         for capability in ('tracks','ai','market-data'):

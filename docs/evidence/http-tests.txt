@@ -1,9 +1,10 @@
+test_browser_keep_alive_does_not_block_service_shutdown (tests.test_http.LocalHttpTests.test_browser_keep_alive_does_not_block_service_shutdown) ... ok
 test_health_and_disabled_capabilities (tests.test_http.LocalHttpTests.test_health_and_disabled_capabilities) ... ok
 test_maintenance_rejects_write_but_keeps_reading (tests.test_http.LocalHttpTests.test_maintenance_rejects_write_but_keeps_reading) ... ok
 test_other_site_and_host_cannot_access_local_research (tests.test_http.LocalHttpTests.test_other_site_and_host_cannot_access_local_research) ... ok
 test_static_path_cannot_escape_web (tests.test_http.LocalHttpTests.test_static_path_cannot_escape_web) ... ok
 
 ----------------------------------------------------------------------
-Ran 4 tests in 0.119s
+Ran 5 tests in 0.135s
 
 OK

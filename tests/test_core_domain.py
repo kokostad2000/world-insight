@@ -69,6 +69,20 @@ class CoreDomainTests(unittest.TestCase):
         self.assertEqual(again["version"], 1)
         self.assertEqual(first["id"], again["id"])
 
+    def test_older_database_channel_identities_are_backfilled(self):
+        # Simulate a persisted database from before aliases existed, not a mocked Store.
+        old = self.store.create('evidence', {
+            'title':'[旧版夹具] 已合并材料','source_id':'manual','source_record_id':None,
+            'url':'https://fixture.example/original','excerpt':'','topic_id':self.topic['id'],
+            'topic_ids':[self.topic['id']], 'rights':{'store':'metadata','display':'metadata','export':'metadata'},
+            'channels':[{'source_id':'manual','url':'https://fixture.example/original'},
+                        {'source_id':'rss','source_record_id':'alternate','url':'https://fixture.example/alternate'}]})
+        fetched = self.evidence(title='[旧版夹具] 已合并材料',source_id='rss',source_record_id='alternate',
+                                url='https://fixture.example/alternate',excerpt='')
+        self.assertEqual(fetched['id'],old['id'])
+        self.assertEqual(self.store.list('evidence')['total'],1)
+        self.assertEqual(self.store.get('knowledge_index','evidence-alias-v1')['revision'],1)
+
     def test_similar_titles_do_not_merge_and_cannot_infer_event_time(self):
         a = self.evidence(excerpt="", title="某地区宣布停火", url="https://fixture.example/a")
         b = self.evidence(excerpt="", title="某地区宣布停火", url="https://fixture.example/b")
@@ -201,6 +215,24 @@ class CoreDomainTests(unittest.TestCase):
         self.call("POST", f'evidence/{evidence["id"]}/corrections', {"expected_version": 1, "reason": "来源收紧展示范围", "status": "restricted", "substantive": False})
         history = self.call("GET", f'evidence/{evidence["id"]}/history')
         self.assertTrue(all(not row["excerpt"] for row in history["items"]))
+
+    def test_repeated_channel_without_excerpt_uses_persistent_alias(self):
+        first = self.evidence()
+        second = self.evidence(source_id="rss", url="https://fixture.example/repost", source_record_id="rss-article")
+        self.assertEqual(first["id"], second["id"])
+        self.store.close()
+        self.store = Store(self.path)
+        third = self.evidence(source_id="rss", url="https://fixture.example/repost", source_record_id="rss-article", excerpt="")
+        self.assertEqual(first["id"], third["id"])
+        self.assertEqual(self.call("GET", "evidence")["total"], 1)
+
+    def test_transitive_reposts_share_one_origin_chain(self):
+        first = self.evidence(excerpt="")
+        second = self.evidence(excerpt="", url="https://fixture.example/repost-a", origin_evidence_id=first["id"])
+        self.evidence(excerpt="", url="https://fixture.example/repost-b", origin_evidence_id=second["id"])
+        counts = self.call("GET", "evidence")["source_counts"]
+        self.assertEqual(counts["identified_source_chain_count"], 1)
+        self.assertEqual(counts["independence_unconfirmed_count"], 0)
 
     def test_export_filters_rights_and_secrets(self):
         self.store.create("source", {"name": "夹具来源", "api_key": "DO_NOT_EXPORT", "rights": {}}, record_id="secret-source")

@@ -233,7 +233,7 @@ def bundle(store, topic_id, include_history=False, action="display"):
         result["histories"] = history
     result["citations"] = [_evidence_view(store, store.version(ref), action) for ref in sorted(refs)]
     result["evidence"] = [_evidence_view(store, row, action) for row in result["evidence"]]
-    result["source_counts"] = source_counts(result["evidence"])
+    result["source_counts"] = source_counts(result["evidence"], store)
     source_ids = {r.get("source_id") for r in result["evidence"] + result["observations"]}
     public_source_fields = {"id", "version", "name", "adapter", "domain", "languages", "regions", "license_url", "checked_at", "rights", "status", "last_success", "data_as_of"}
     result["sources"] = [{k: v for k, v in row.items() if k in public_source_fields} for row in store.all("source") if row["id"] in source_ids]

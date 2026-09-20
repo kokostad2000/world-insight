@@ -1,0 +1,274 @@
+{
+  "date": "2026-09-20T15:12:29Z",
+  "environment": {
+    "platform": "macOS-15.6.1-arm64-arm-64bit",
+    "architecture": "arm64",
+    "python": "3.11.4",
+    "cpu_count": 8,
+    "network": "loopback only; no upstream requests",
+    "cache": "SQLite warm after fixture generation"
+  },
+  "fixture": {
+    "topics": 10,
+    "evidence": 20000,
+    "events": 5000,
+    "changes": 20000,
+    "concurrent_sessions": 5
+  },
+  "seed_seconds": 1.439,
+  "summaries": {
+    "dashboard": {
+      "count": 20,
+      "p95_seconds": 0.930405,
+      "max_seconds": 0.939624
+    },
+    "filter": {
+      "count": 20,
+      "p95_seconds": 0.373495,
+      "max_seconds": 0.381899
+    }
+  },
+  "samples": [
+    {
+      "session": 0,
+      "category": "dashboard",
+      "seconds": 0.451489,
+      "bytes": 18584
+    },
+    {
+      "session": 0,
+      "category": "filter",
+      "seconds": 0.381899,
+      "bytes": 59266
+    },
+    {
+      "session": 0,
+      "category": "dashboard",
+      "seconds": 0.606008,
+      "bytes": 18584
+    },
+    {
+      "session": 0,
+      "category": "filter",
+      "seconds": 0.373495,
+      "bytes": 59267
+    },
+    {
+      "session": 0,
+      "category": "dashboard",
+      "seconds": 0.361316,
+      "bytes": 18584
+    },
+    {
+      "session": 0,
+      "category": "filter",
+      "seconds": 0.177059,
+      "bytes": 59267
+    },
+    {
+      "session": 0,
+      "category": "dashboard",
+      "seconds": 0.537893,
+      "bytes": 18584
+    },
+    {
+      "session": 0,
+      "category": "filter",
+      "seconds": 0.22857,
+      "bytes": 59267
+    },
+    {
+      "session": 1,
+      "category": "dashboard",
+      "seconds": 0.781475,
+      "bytes": 18584
+    },
+    {
+      "session": 1,
+      "category": "filter",
+      "seconds": 0.11834,
+      "bytes": 59266
+    },
+    {
+      "session": 1,
+      "category": "dashboard",
+      "seconds": 0.913,
+      "bytes": 18584
+    },
+    {
+      "session": 1,
+      "category": "filter",
+      "seconds": 0.080225,
+      "bytes": 59267
+    },
+    {
+      "session": 1,
+      "category": "dashboard",
+      "seconds": 0.930405,
+      "bytes": 18584
+    },
+    {
+      "session": 1,
+      "category": "filter",
+      "seconds": 0.193717,
+      "bytes": 59267
+    },
+    {
+      "session": 1,
+      "category": "dashboard",
+      "seconds": 0.75766,
+      "bytes": 18584
+    },
+    {
+      "session": 1,
+      "category": "filter",
+      "seconds": 0.064012,
+      "bytes": 59267
+    },
+    {
+      "session": 2,
+      "category": "dashboard",
+      "seconds": 0.84936,
+      "bytes": 18584
+    },
+    {
+      "session": 2,
+      "category": "filter",
+      "seconds": 0.1019,
+      "bytes": 59266
+    },
+    {
+      "session": 2,
+      "category": "dashboard",
+      "seconds": 0.487729,
+      "bytes": 18584
+    },
+    {
+      "session": 2,
+      "category": "filter",
+      "seconds": 0.304607,
+      "bytes": 59267
+    },
+    {
+      "session": 2,
+      "category": "dashboard",
+      "seconds": 0.939624,
+      "bytes": 18584
+    },
+    {
+      "session": 2,
+      "category": "filter",
+      "seconds": 0.214141,
+      "bytes": 59267
+    },
+    {
+      "session": 2,
+      "category": "dashboard",
+      "seconds": 0.646046,
+      "bytes": 18584
+    },
+    {
+      "session": 2,
+      "category": "filter",
+      "seconds": 0.224775,
+      "bytes": 59267
+    },
+    {
+      "session": 3,
+      "category": "dashboard",
+      "seconds": 0.849978,
+      "bytes": 18584
+    },
+    {
+      "session": 3,
+      "category": "filter",
+      "seconds": 0.153372,
+      "bytes": 59266
+    },
+    {
+      "session": 3,
+      "category": "dashboard",
+      "seconds": 0.824838,
+      "bytes": 18584
+    },
+    {
+      "session": 3,
+      "category": "filter",
+      "seconds": 0.250673,
+      "bytes": 59267
+    },
+    {
+      "session": 3,
+      "category": "dashboard",
+      "seconds": 0.819235,
+      "bytes": 18584
+    },
+    {
+      "session": 3,
+      "category": "filter",
+      "seconds": 0.175137,
+      "bytes": 59267
+    },
+    {
+      "session": 3,
+      "category": "dashboard",
+      "seconds": 0.701608,
+      "bytes": 18584
+    },
+    {
+      "session": 3,
+      "category": "filter",
+      "seconds": 0.228924,
+      "bytes": 59267
+    },
+    {
+      "session": 4,
+      "category": "dashboard",
+      "seconds": 0.849103,
+      "bytes": 18584
+    },
+    {
+      "session": 4,
+      "category": "filter",
+      "seconds": 0.204654,
+      "bytes": 59266
+    },
+    {
+      "session": 4,
+      "category": "dashboard",
+      "seconds": 0.773122,
+      "bytes": 18584
+    },
+    {
+      "session": 4,
+      "category": "filter",
+      "seconds": 0.192266,
+      "bytes": 59267
+    },
+    {
+      "session": 4,
+      "category": "dashboard",
+      "seconds": 0.64394,
+      "bytes": 18584
+    },
+    {
+      "session": 4,
+      "category": "filter",
+      "seconds": 0.28305,
+      "bytes": 59267
+    },
+    {
+      "session": 4,
+      "category": "dashboard",
+      "seconds": 0.529651,
+      "bytes": 18584
+    },
+    {
+      "session": 4,
+      "category": "filter",
+      "seconds": 0.172042,
+      "bytes": 59267
+    }
+  ],
+  "boundaries": "Synthetic actual HTTP API benchmark; dashboard API latency is not browser first usable content or seven-day real observation."
+}
