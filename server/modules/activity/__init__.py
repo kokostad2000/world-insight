@@ -12,16 +12,18 @@ def _get(store, kind, record_id):
 
 def on_event(store,event):
     payload=event['payload']; event_type=event['type']
-    if event_type not in {'evidence.created','evidence.updated','evidence.corrected','event.created','claim.created',
+    if event_type not in {'evidence.created','evidence.updated','evidence.corrected','event.created','event.updated','claim.created','claim.updated','observation.updated',
                           'judgment.created','judgment.revised','research.needs_review','source.failed','source.recovered'}:
         return
     record_id='change-'+event['id']
     if _get(store,'change',record_id):return
-    needs_review=event_type in ('evidence.corrected','research.needs_review')
+    needs_review=event_type in ('evidence.corrected','research.needs_review') or bool(payload.get('dependency_review'))
     titles={'evidence.created':'新增材料，待核查','evidence.updated':'材料字段变化，尚未确认实质更正',
             'evidence.corrected':'材料已确认更正或撤回','event.created':'新增事件记录','claim.created':'新增主体说法',
             'judgment.created':'新增研究判断','judgment.revised':'判断已修订','research.needs_review':'相关研究需要重新审阅',
             'source.failed':'来源检查失败，覆盖存在缺口','source.recovered':'来源恢复可用'}
+    titles.update({'event.updated':'事件或政策状态更新','claim.updated':'主体说法更新','observation.updated':'指标修订，观测期保持不变'})
+    if event_type=='evidence.updated' and needs_review:titles[event_type]='材料访问或授权变化，相关研究待检查'
     topics=payload.get('topic_ids') or [payload.get('topic_id')]
     store.create('change',{'event_id':event['id'],'type':event_type,'aggregate_id':event['aggregate_id'],
                           'topic_id':payload.get('topic_id') or (topics[0] if topics else None),'topic_ids':topics,
@@ -33,11 +35,14 @@ def on_event(store,event):
     if needs_review or event_type=='source.failed':
         store.create('notification',{'event_id':event['id'],'topic_id':payload.get('topic_id'),
                                     'reason':titles[event_type],'status':'unread','related_id':event['aggregate_id']},'notification-'+event['id'])
-    if event_type=='evidence.corrected':
+    if needs_review:
         evidence_id=payload.get('evidence_id') or event['aggregate_id']
         for brief in store.all('brief'):
-            if any(ref.split('@')[0]==evidence_id for ref in brief.get('evidence_version_ids',[])):
-                store.update('brief',brief['id'],{'status':'needs_review','review_reason':payload.get('reason') or '引用材料发生实质更正'},brief['version'])
+            affected=any(ref.split('@')[0]==evidence_id for ref in brief.get('evidence_version_ids',[]))
+            if event_type=='research.needs_review' and event['aggregate_id'] in brief.get('judgment_ids',[]):affected=True
+            if affected and event['id'] not in brief.get('review_event_ids',[]):
+                store.update('brief',brief['id'],{'status':'needs_review','review_reason':payload.get('reason') or '引用材料发生更正或访问限制',
+                                                'review_event_ids':brief.get('review_event_ids',[])+[event['id']]},brief['version'])
 
 
 def _date(value):
@@ -107,7 +112,7 @@ def mark_read(store,body):
         for item in items:
             if not isinstance(item,dict):raise ApiError(400,'invalid_item','已读项目需包含ID与版本')
             current=_get(store,'change',item.get('id',''))
-            if not current or current['version']!=item.get('version') or current['updated_at']>snapshot or current['created_at']>snapshot:
+            if not current or current['version']!=item.get('version') or _date(current['updated_at'])>_date(snapshot) or _date(current['created_at'])>_date(snapshot):
                 skipped.append(item);continue
             record_id=current['id']+'@'+str(current['version'])
             if not _get(store,'read_state',record_id):
@@ -123,7 +128,7 @@ def make_brief(store,body):
     citations=[];sections=[f'# {topic.get("question",topic.get("title","议题"))}',f'生成于 {store.now()}','模板简报；用户审阅不代表事实得到证明。']
     for judgment in judgments:
         refs=judgment.get('evidence_version_ids',[])
-        citations.extend(refs)
+        citations.extend(refs + judgment.get('opposing_evidence_version_ids',[]))
         missing=judgment.get('missing_evidence') or not refs
         sections.append(f'\n## 判断 v{judgment["version"]} · {judgment.get("status","draft")}\n{judgment.get("conclusion","")}')
         if missing:sections.append('假设型暂定判断／缺乏证据支持')

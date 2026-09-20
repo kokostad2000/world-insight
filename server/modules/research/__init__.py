@@ -2,6 +2,7 @@
 import copy
 import json
 from server.platform.errors import ApiError
+from server.platform.time_utils import in_range
 from server.modules.knowledge.validation import choice, expected, fail, fields, page, references, strings, temporal, text, topic
 from server.modules.knowledge import _present as present_evidence, source_counts
 
@@ -173,14 +174,13 @@ def _list(store, kind, query):
         if query.get(key):
             rows = [r for r in rows if r.get(key) == query[key]]
     if query.get("due_before"):
-        rows = [r for r in rows if r.get("review_date") and r["review_date"] <= query["due_before"] and r.get("status") != "withdrawn"]
+        rows = [r for r in rows if in_range(r.get("review_date"),until=query["due_before"]) and r.get("status") != "withdrawn"]
     if query.get("search"):
         rows = [r for r in rows if query["search"].lower() in json.dumps(r, ensure_ascii=False).lower()]
     if query.get("changed") == "true":
         rows = [r for r in rows if r["version"] > 1]
-    for key, op in (("since", lambda a, b: a >= b), ("until", lambda a, b: a <= b)):
-        if query.get(key):
-            rows = [r for r in rows if op(r["updated_at"], query[key])]
+    if query.get("since") or query.get("until"):
+        rows = [r for r in rows if in_range(r.get("updated_at"),query.get("since"),query.get("until"))]
     result = {"items": rows[offset:offset + limit], "total": len(rows), "limit": limit, "offset": offset, "data_status": "fresh", "empty_reason": None if rows else "no_matches"}
     if kind == "review":
         result["summary"] = _review_summary(rows)
@@ -206,7 +206,7 @@ def _evidence_view(store, record, action):
     latest = store.get("evidence", record["id"])
     result = present_evidence(record, action)
     permission = latest.get("rights", {}).get(action)
-    if permission not in (True, "excerpt", "full", "allowed") or latest.get("status") == "restricted":
+    if permission not in (True, "excerpt", "full", "allowed") or latest.get("rights",{}).get("store") not in (True,"excerpt","full","allowed") or latest.get("status") == "restricted":
         result["excerpt"], result["translation"] = "", ""
         result["content_restricted"] = True
     return result
@@ -291,7 +291,7 @@ def on_event(store, event):
                 if not affected:
                     continue
                 reason = payload.get("reason") or "所引用的材料已更正或失效，请重新审阅"
-                patch = {"status": "needs_review", "review_reason": reason, "review_event_ids": row.get("review_event_ids", []) + [event["id"]], "review_evidence_version_ids": sorted(affected)}
+                patch = {"status": "withdrawn" if row.get("status") == "withdrawn" else "needs_review", "needs_review": True, "review_reason": reason, "review_event_ids": row.get("review_event_ids", []) + [event["id"]], "review_evidence_version_ids": sorted(affected)}
                 if kind == "impact_path":
                     patch["edges"] = [{**edge, "needs_review": True, "review_reason": reason} if refs.intersection(edge.get("evidence_version_ids", [])) else edge for edge in row.get("edges", [])]
                 revised = store.update(kind, row["id"], patch, row["version"])

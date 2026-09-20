@@ -43,6 +43,8 @@ Only entity owner validates & writes its kinds. Generic storage isn't permission
 
 Unknown fields are null or explicit unknown, never fabricated. Source state: ready/not_configured/disabled/manual/quota_exhausted/failed/stale. Data status: fresh/stale/unknown/unavailable. Coverage: complete/partial/unavailable/not_configured; complete means configured sources checked, not complete world coverage. No matches only when checks succeeded. Status flags for evidence include unverified/reviewed/disputed/corrected/withdrawn/inaccessible/restricted; reviewed is user action, not truth.
 
+Evidence `content_scope` is `excerpt` by default; only explicitly complete, legally stored content (`full`) may use content fingerprint identity. Equal short excerpts or null indicator values never establish identity, and distinct provider record IDs remain distinct. Translation has the same storage/display/export limits as original excerpts. Observation supports topic_ids[] without replacing its original topic association. Instant comparisons normalize time zones; uncertain date/month precision is retained and interval overlap is used for filtering. Withdrawal remains withdrawn after correction, with separate needs_review/review_reason metadata.
+
 ## Routes beyond standard CRUD
 
 - `GET /api/health` and `/api/bootstrap` root. Bootstrap includes version,data_dir,capabilities,templates.
