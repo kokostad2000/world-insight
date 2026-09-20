@@ -1,0 +1,17 @@
+.env
+.env.*
+!.env.example
+.worktrees/
+.runtime/
+.test-data/
+__pycache__/
+*.py[cod]
+*.sqlite*
+*.db*
+*.log
+node_modules/
+.venv/
+data/
+backups/
+attachments/
+.DS_Store
