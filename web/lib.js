@@ -24,7 +24,7 @@ export const labels = {
  'evidence.created':'新材料','evidence.updated':'材料更新','evidence.corrected':'证据更正','event.created':'新事件',
  'claim.created':'新说法','judgment.created':'新判断','judgment.revised':'判断修订','research.needs_review':'研究待重审',
  'source.failed':'来源失效','source.recovered':'来源恢复',read:'已读',unread:'未读',
- pending:'待处理',queued:'等待采集',running:'采集中',succeeded:'成功',success:'成功',error:'失败',cancelled:'已取消',
+ generated:'模板生成',pending:'待处理',queued:'等待采集',running:'采集中',succeeded:'成功',success:'成功',error:'失败',cancelled:'已取消',
 };
 export function label(value) { return labels[value] || value || '未知'; }
 export function badge(value, text) { const tone = ['failed','withdrawn','needs_review','unavailable'].includes(value) ? 'danger' : ['unverified','disputed','stale','partial','quota_exhausted','unknown','draft'].includes(value) ? 'warn' : ['reviewed','ready','fresh','active','complete','succeeded','success'].includes(value) ? 'good' : 'neutral'; return `<span class="badge ${tone}">${esc(text || label(value))}</span>`; }
