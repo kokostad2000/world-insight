@@ -31,6 +31,17 @@ class LocalHttpCase(unittest.TestCase):
 
 
 class LocalHttpTests(LocalHttpCase):
+    def test_browser_keep_alive_does_not_block_service_shutdown(self):
+        conn=http.client.HTTPConnection('127.0.0.1',self.server.server_port,timeout=3)
+        conn.request('GET','/api/health',headers={'Connection':'keep-alive'})
+        response=conn.getresponse();response.read()
+        self.assertEqual(response.getheader('Connection'),'close')
+        # Keep the browser client object alive while the server shuts down.
+        import time
+        start=time.monotonic();self.server.shutdown();self.server.server_close()
+        self.assertLess(time.monotonic()-start,1)
+        conn.close()
+
     def test_health_and_disabled_capabilities(self):
         self.assertEqual(self.request('/api/health')[1]['instance_id'],'http-fixture')
         for capability in ('tracks','ai','market-data'):

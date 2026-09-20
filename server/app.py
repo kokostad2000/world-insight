@@ -70,6 +70,11 @@ def handler_class(app):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = 'HTTP/1.1'
 
+        def setup(self):
+            super().setup()
+            # Browser idle/keep-alive sockets must not prevent a normal Mac stop/update.
+            self.connection.settimeout(5)
+
         def log_message(self, fmt, *args):
             # Request URLs can contain private query text. Log only method/status.
             pass
@@ -87,6 +92,8 @@ def handler_class(app):
             self.send_header('Content-Length',str(len(data)))
             self.send_header('X-Content-Type-Options','nosniff')
             self.send_header('Cache-Control','no-store')
+            self.send_header('Connection','close')
+            self.close_connection = True
             self.send_header('Referrer-Policy','no-referrer')
             self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
             self.end_headers()
