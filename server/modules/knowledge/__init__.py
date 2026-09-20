@@ -128,7 +128,46 @@ def _present(record, action="display"):
     return item
 
 
+def _alias_keys(data):
+    keys = []
+    if data.get("source_record_id"):
+        keys.append("source:" + json.dumps([data.get("source_id"), data["source_record_id"]], ensure_ascii=False))
+    if data.get("url"):
+        keys.append("url:" + canonical_url(data["url"]))
+    return keys
+
+
+def _alias_id(key):
+    return hashlib.sha256(key.encode()).hexdigest()
+
+
+def _bind_aliases(store, record):
+    for channel in [record] + record.get("channels", []):
+        for key in _alias_keys(channel):
+            alias_id = _alias_id(key)
+            try:
+                old = store.get("evidence_alias", alias_id)
+            except ApiError as error:
+                if error.status != 404:
+                    raise
+                store.create("evidence_alias", {"key": key, "evidence_id": record["id"]}, record_id=alias_id)
+            else:
+                if old["evidence_id"] != record["id"]:
+                    store.update("evidence_alias", alias_id, {"evidence_id": record["id"]}, old["version"])
+
+
 def _dedup(store, data):
+    for key in _alias_keys(data):
+        try:
+            alias = store.get("evidence_alias", _alias_id(key))
+            item = store.get("evidence", alias["evidence_id"])
+        except ApiError as error:
+            if error.status == 404:
+                continue
+            raise
+        distinct_source_records = data.get("source_id") == item.get("source_id") and data.get("source_record_id") and item.get("source_record_id") and data["source_record_id"] != item["source_record_id"]
+        if not distinct_source_records:
+            return item
     if data.get("source_record_id"):
         for item in store.find("evidence", "source_record_id", data["source_record_id"]):
             if item.get("source_id") == data.get("source_id"):
@@ -165,11 +204,14 @@ def ingest(store, data):
                 content = item["excerpt"] if "excerpt" in clean else old.get("excerpt", "")
                 patch["content_fingerprint"] = hashlib.sha256(content.encode()).hexdigest() if content else None
             if all(old.get(k) == v for k, v in patch.items()):
+                _bind_aliases(store, old)
                 return {**_present(old), "deduplicated": True}
             updated = store.update("evidence", old["id"], patch, old["version"])
+            _bind_aliases(store, updated)
             store.publish("evidence.updated", old["id"], _event_payload(updated, patch.get("change_reason", "新增出现渠道或议题关联")))
             return {**_present(updated), "deduplicated": True}
         created = store.create("evidence", item)
+        _bind_aliases(store, created)
         store.publish("evidence.created", created["id"], _event_payload(created))
         return _present(created)
 
@@ -308,21 +350,33 @@ def split(store, evidence_id, body):
         base.update({"channels": selected, "url": selected[0].get("url"), "source_id": selected[0].get("source_id"), "source_record_id": selected[0].get("source_record_id"), "change_reason": reason, "status": "unverified"})
         new = store.create("evidence", {**_prepare_evidence(store, base), "split_from": old["id"], "split_reason": reason})
         revised = store.update("evidence", old["id"], {"channels": remaining, "url": remaining[0].get("url"), "source_id": remaining[0].get("source_id"), "source_record_id": remaining[0].get("source_record_id"), "change_reason": reason, "split_children": old.get("split_children", []) + [new["id"]]}, version)
+        _bind_aliases(store, revised)
+        _bind_aliases(store, new)
         _mark_dependents(store, revised, reason)
         store.publish("evidence.corrected", old["id"], _event_payload(revised, reason, old_version_ids=[f'{old["id"]}@{v["version"]}' for v in store.history("evidence", old["id"])], substantive=True, split_evidence_id=new["id"]))
         store.publish("evidence.created", new["id"], _event_payload(new, reason))
         return {"original": _present(revised), "split": _present(new)}
 
 
-def source_counts(records):
-    chains, unknown = set(), 0
-    reports = 0
+def source_counts(records, store=None):
+    chains, known_roots = set(), set()
+    roots_by_record = {}
     for item in records:
-        reports += max(1, len(item.get("channels", [])))
-        if item.get("origin_evidence_id"):
-            chains.add(item["origin_evidence_id"])
-        else:
-            unknown += 1
+        origin = item.get("origin_evidence_id")
+        if not origin:
+            continue
+        seen = {item["id"]}
+        while store and origin not in seen:
+            seen.add(origin)
+            ancestor = store.get("evidence", origin)
+            if not ancestor.get("origin_evidence_id"):
+                break
+            origin = ancestor["origin_evidence_id"]
+        chains.add(origin)
+        known_roots.add(origin)
+        roots_by_record[item["id"]] = origin
+    reports = sum(max(1, len(item.get("channels", []))) for item in records)
+    unknown = sum(1 for item in records if item["id"] not in roots_by_record and item["id"] not in known_roots)
     return {"report_count": reports, "identified_source_chain_count": len(chains), "independence_unconfirmed_count": unknown, "note": "来源链数量不等于事实证实次数"}
 
 
@@ -347,7 +401,7 @@ def _list(store, kind, query):
         result = store.list(kind, topic_id=query.get("topic_id"), limit=limit, offset=offset, search=query.get("search"))
         result["items"] = [_present(row) for row in result["items"]]
         if kind == "evidence":
-            result["source_counts"] = source_counts(result["items"])
+            result["source_counts"] = source_counts(result["items"], store)
         return result
     rows = store.all(kind, topic_id=query.get("topic_id"))
     if query.get("search"):
@@ -368,7 +422,7 @@ def _list(store, kind, query):
         rows = [{**r, "association_status": "candidate_only"} for r in rows if r["id"] != original["id"] and SequenceMatcher(None, r.get("title", ""), original["title"]).ratio() >= .65]
     result = {"items": [_present(r) for r in rows[offset:offset + limit]], "total": len(rows), "offset": offset, "limit": limit, "data_status": "fresh", "empty_reason": None if rows else "no_matches"}
     if kind == "evidence":
-        result["source_counts"] = source_counts(rows)
+        result["source_counts"] = source_counts(rows, store)
     return result
 
 
@@ -409,7 +463,7 @@ def handle(store, method, segments, body, query):
                 record = _present(store.get(kind, record_id))
                 if kind == "evidence":
                     record["relations"] = _relations(store, record_id)
-                    record["source_counts"] = source_counts([record])
+                    record["source_counts"] = source_counts([record], store)
                 return record
             if method == "PATCH":
                 with store.transaction():
