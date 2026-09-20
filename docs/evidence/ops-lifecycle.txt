@@ -1,0 +1,30 @@
+Actual command: python3 -m unittest tests.test_ops_lifecycle -v
+Worktree: /Users/zhanglike/Desktop/world-insight/.worktrees/ops
+Execution: real macOS Python subprocesses, isolated fixture Git repositories and SQLite databases, ports 8874/8875, collectors disabled.
+Captured result: exec session 63535, exit code 0.
+
+17 tests passed:
+- backup_disk_failure_keeps_previous_valid_package
+- corrupt_and_incompatible_backup_never_replace_existing
+- directory_permission_and_tampered_manifest_are_blocked
+- dirty_and_untracked_update_protection
+- failing_migration_restores_program_data_and_attachments
+- interrupted_update_recovers_and_does_not_duplicate_migrations
+- local_preflight_port_occupied_and_missing_data_identity
+- new_code_directory_reopens_existing_data_and_normal_stop_is_safe
+- real_start_reuse_stop_and_restart_edit
+- restore_does_not_treat_unbound_personal_files_as_empty
+- running_backup_and_empty_restore_continue_edit
+- script_and_command_entrypoints_in_chinese_space_path
+- secret_config_not_echoed_and_missing_dependency_blocks
+- successful_schema_migration_can_explicitly_roll_back_without_new_writes
+- successful_update_selection_and_new_write_rollback_guard
+- target_health_failure_rolls_back_and_download_failure_is_safe
+- upgrade_backup_failure_aborts_before_migration
+
+Ran 17 tests in 21.296s
+OK
+
+Coverage boundary: real process/filesystem/SQLite/HTTP validation with explicitly synthetic research records. Disk-full and missing Python use injected failure conditions; corrupt packages, chmod directory denial, port contention, failing SQL migration, altered health endpoint and killed updater are actually exercised against isolated local artifacts/processes. No browser/Finder interaction, real source network, seven-day observation or physical disk exhaustion is claimed.
+
+Earlier attempts: sandbox socket binding was denied; reran under authorized local-service permissions. A real TIME_WAIT false-positive was found in port preflight, fixed via SO_REUSEADDR and verified by repeated restart. These failed attempts are not acceptance passes. Final 17-test run above passed.
