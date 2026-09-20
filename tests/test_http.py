@@ -11,7 +11,7 @@ from server.platform.config import load_config
 from server.platform.store import Store
 
 
-class LocalHttpTests(unittest.TestCase):
+class LocalHttpCase(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.data=Path(self.tmp.name)
         self.config=load_config(data_dir=self.data,port=8870)
@@ -28,6 +28,9 @@ class LocalHttpTests(unittest.TestCase):
         conn.request(method,path,body=content,headers={'Content-Type':'application/json',**(headers or {})})
         response=conn.getresponse();status=response.status;data=response.read();conn.close()
         return status,json.loads(data)
+
+
+class LocalHttpTests(LocalHttpCase):
     def test_health_and_disabled_capabilities(self):
         self.assertEqual(self.request('/api/health')[1]['instance_id'],'http-fixture')
         for capability in ('tracks','ai','market-data'):
