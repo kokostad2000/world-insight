@@ -180,8 +180,27 @@ class Store:
                 for v in obj: walk(v,owner)
         with self._lock:
             rows = self.db.execute('SELECT kind,id,data FROM versions').fetchall()
+            ids = {}
+            for kind,record_id in self.db.execute('SELECT kind,id FROM records'):
+                ids.setdefault(kind,set()).add(record_id)
+            versions = {(r[0],r[1],r[2]) for r in self.db.execute('SELECT kind,id,version FROM versions')}
         for row in rows:
-            walk(json.loads(row[2]),row[0]+':'+row[1])
+            record=json.loads(row[2]);owner=row[0]+':'+row[1]
+            walk(record,owner)
+            references={'topic_id':'topic','source_id':'source','origin_evidence_id':'evidence','evidence_id':'evidence',
+                        'judgment_id':'judgment','change_id':'change'}
+            for field,target_kind in references.items():
+                ref=record.get(field)
+                if not ref or (field=='source_id' and ref=='manual'):continue
+                if ref not in ids.get(target_kind,set()):invalid_refs.append({'owner':owner,'field':field,'reference':ref})
+            for field,target_kind in {'topic_ids':'topic','source_ids':'source','claim_ids':'claim','judgment_ids':'judgment'}.items():
+                for ref in record.get(field,[]):
+                    if ref and ref not in ids.get(target_kind,set()):invalid_refs.append({'owner':owner,'field':field,'reference':ref})
+            for field,id_field,target_kind in [('judgment_version','judgment_id','judgment'),('change_version','change_id','change')]:
+                if record.get(field) is not None and (target_kind,record.get(id_field),record[field]) not in versions:
+                    invalid_refs.append({'owner':owner,'field':field,'reference':str(record.get(id_field))+'@'+str(record[field])})
+            for ref in record.get('judgment_versions',[]):
+                if ('judgment',ref.get('id'),ref.get('version')) not in versions:invalid_refs.append({'owner':owner,'field':'judgment_versions','reference':ref})
         return {'ok':check=='ok' and not foreign and not broken and not invalid_refs,
                 'sqlite':check,'foreign_key_errors':len(foreign),'version_errors':len(broken),'reference_errors':invalid_refs,'counts':counts}
 

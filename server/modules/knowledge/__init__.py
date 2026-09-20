@@ -6,6 +6,7 @@ import math
 import re
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from server.platform.errors import ApiError
+from server.platform.time_utils import in_range
 from .validation import choice, expected, fail, fields, page, references, strings, temporal, text, topic
 
 COLLECTIONS = {"evidence": "evidence", "claims": "claim", "events": "event", "metrics": "observation"}
@@ -14,6 +15,8 @@ CLAIM_FIELDS = {"subject", "statement", "evidence_version_ids", "attribution", "
 EVENT_FIELDS = {"title", "event_type", "actors", "occurred_at", "time_precision", "location", "claim_ids", "evidence_version_ids", "verification_status", "topic_id", "notes", "change_reason", "is_fixture"}
 METRIC_FIELDS = {"indicator", "country_code", "value", "unit", "period", "published_at", "frequency", "source_id", "evidence_version_ids", "topic_id", "notes", "change_reason", "is_fixture"}
 EVIDENCE_STATUSES = {"unverified", "reviewed", "disputed", "corrected", "withdrawn", "inaccessible", "restricted"}
+EVIDENCE_FIELDS.add("content_scope")
+METRIC_FIELDS.add("topic_ids")
 
 
 def canonical_url(value):
@@ -85,10 +88,13 @@ def _prepare_evidence(store, data, old=None):
     item["title"] = text(item["title"], "title", True)
     text(item["excerpt"], "excerpt")
     item["excerpt"] = item["excerpt"] or ""
+    text(item.get("translation", ""), "translation")
+    item["translation"] = item.get("translation") or ""
+    item["content_scope"] = choice(item.get("content_scope", "excerpt"), {"excerpt", "full"}, "content_scope")
     item["url"] = canonical_url(item["url"])
     item["rights"] = _rights(item["rights"])
-    if item["excerpt"] and not _excerpt_allowed(item["rights"], "store"):
-        fail("来源授权未允许保存摘录；请仅登记链接或先核对授权", "rights_restricted")
+    if (item["excerpt"] or item["translation"]) and not _excerpt_allowed(item["rights"], "store"):
+        fail("来源授权未允许保存摘录或译文；请仅登记链接或先核对授权", "rights_restricted")
     for key in ("published_at", "source_updated_at", "collected_at", "discovered_at", "provider_seen_at"):
         item.setdefault(key, None)
         item[key] = temporal(item[key], key)
@@ -120,7 +126,7 @@ def _event_payload(record, reason=None, **extra):
 def _present(record, action="display"):
     item = copy.deepcopy(record)
     if item.get("rights"):
-        if not _excerpt_allowed(item["rights"], action) or item.get("status") == "restricted":
+        if not _excerpt_allowed(item["rights"], action) or not _excerpt_allowed(item["rights"], "store") or item.get("status") == "restricted":
             item["excerpt"], item["translation"] = "", ""
             item["content_restricted"] = True
     if "content_fingerprint" in item:
@@ -191,9 +197,10 @@ def _dedup(store, data):
             distinct_source_records = data.get("source_id") == item.get("source_id") and data.get("source_record_id") and item.get("source_record_id") and data["source_record_id"] != item["source_record_id"]
             if not distinct_source_records:
                 return item
-    if data.get("content_fingerprint"):
+    if data.get("content_fingerprint") and data.get("content_scope") == "full":
         for item in store.find("evidence", "content_fingerprint", data["content_fingerprint"]):
-            if not item.get("split_from") and not item.get("split_children"):
+            distinct_records = data.get("source_id") == item.get("source_id") and data.get("source_record_id") and item.get("source_record_id") and data["source_record_id"] != item["source_record_id"]
+            if item.get("content_scope") == "full" and not distinct_records and not item.get("split_from") and not item.get("split_children"):
                 return item
     return None
 
@@ -285,6 +292,9 @@ def _prepare_metric(store, data, old=None):
     item["published_at"] = temporal(item["published_at"], "published_at")
     item["evidence_version_ids"] = references(store, item["evidence_version_ids"])
     item["topic_id"] = topic(store, item["topic_id"])
+    item["topic_ids"] = strings(item.get("topic_ids",[]),"topic_ids")
+    if item["topic_id"] and item["topic_id"] not in item["topic_ids"]:item["topic_ids"].append(item["topic_id"])
+    for topic_id in item["topic_ids"]:topic(store,topic_id)
     return {k: v for k, v in item.items() if k in METRIC_FIELDS}
 
 
@@ -298,7 +308,10 @@ def upsert_observation(store, data):
         if old:
             # Additional topic association does not replace the original metric's identity.
             meaningful = ("value", "unit", "published_at", "frequency", "evidence_version_ids")
-            if all(old.get(key) == item.get(key) for key in meaningful):
+            associations = list(dict.fromkeys(old.get("topic_ids", []) + ([old["topic_id"]] if old.get("topic_id") else []) + ([item["topic_id"]] if item.get("topic_id") else [])))
+            item["topic_id"] = old.get("topic_id") or item.get("topic_id")
+            item["topic_ids"] = associations
+            if all(old.get(key) == item.get(key) for key in meaningful) and old.get("topic_ids", []) == associations:
                 return old
             item["change_reason"] = data.get("change_reason") or "指标修订，观测期保持不变"
             revised = store.update("observation", old["id"], item, old["version"])
@@ -428,9 +441,8 @@ def _list(store, kind, query):
     time_field = query.get("time_field", "occurred_at" if kind == "event" else "published_at")
     if time_field not in {"occurred_at", "published_at", "collected_at", "discovered_at", "updated_at"}:
         fail("不支持的时间筛选字段")
-    for key, op in (("since", lambda v, b: v >= b), ("until", lambda v, b: v <= b)):
-        if query.get(key):
-            rows = [r for r in rows if r.get(time_field) and op(r[time_field], query[key])]
+    if query.get("since") or query.get("until"):
+        rows = [r for r in rows if in_range(r.get(time_field),query.get("since"),query.get("until"))]
     if query.get("similar_to"):
         original = store.get("evidence", query["similar_to"])
         from difflib import SequenceMatcher

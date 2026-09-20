@@ -27,7 +27,8 @@ class CoreDomainTests(unittest.TestCase):
         self.fail("Unmatched route")
 
     def evidence(self, **patch):
-        return self.call("POST", "evidence", {"title": "[测试夹具] 官方通告", "url": "https://fixture.example/policy", "topic_id": self.topic["id"], "rights": {"store": True, "display": True, "export": True}, "excerpt": "夹具：这是用于验证版本留存的通告", "is_fixture": True, **patch})
+        # This tiny synthetic document is complete; partial excerpts have separate non-merge regression cases.
+        return self.call("POST", "evidence", {"title": "[测试夹具] 官方通告", "url": "https://fixture.example/policy", "topic_id": self.topic["id"], "rights": {"store": True, "display": True, "export": True}, "excerpt": "夹具：这是用于验证版本留存的通告", "content_scope":"full", "is_fixture": True, **patch})
 
     def judgment(self, evidence=None, **patch):
         return self.call("POST", "judgments", {"topic_id": self.topic["id"], "conclusion": "[测试夹具] 尚须验证政策是否执行", "evidence_version_ids": [evidence["version_id"]] if evidence else [], "assumptions": ["执行主体遵循已公布政策"], "confidence_reason": "仅有一份文件，未验证执行", "review_date": "2026-10-01", "reviewer": "夹具审阅者", "status": "reviewed", "is_fixture": True, **patch})
