@@ -10,6 +10,7 @@ Collection GET returns `{items, total, offset, limit, data_status, empty_reason}
 - `store.get(kind, id)` -> record or raises 404.
 - `store.list(kind, topic_id=None, limit=100, offset=0, search=None)` -> collection.
 - `store.all(kind, topic_id=None)` -> list (internal jobs/export, not unbounded API responses).
+- `store.find(kind, field, value)` -> list of exact field matches; canonical_url/content_fingerprint/source_record_id indexed. Evidence additionally supports topic_ids[]; list/all(topic_id) matches primary or additional association.
 - `store.update(kind, id, data, expected_version)` merges patch, increments version; required optimistic conflict control.
 - `store.history(kind,id)` -> list of immutable snapshots (version ascending).
 - `store.version(version_id)` -> immutable evidence snapshot. ID is `<evidence_id>@<version>`.

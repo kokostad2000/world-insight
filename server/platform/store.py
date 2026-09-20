@@ -1,0 +1,190 @@
+"""Transactional, versioned storage. Domain validation belongs to module owners."""
+import contextlib
+import datetime as dt
+import json
+import sqlite3
+import threading
+import uuid
+from pathlib import Path
+
+from .errors import ApiError
+from .migrations import migrate
+
+
+class Store:
+    def __init__(self, path):
+        self.path = Path(path).resolve()
+        self.data_dir = self.path.parent
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.RLock()
+        self._local = threading.local()
+        self.db = sqlite3.connect(str(self.path), isolation_level=None, check_same_thread=False, timeout=15)
+        self.db.row_factory = sqlite3.Row
+        self.db.execute('PRAGMA foreign_keys=ON')
+        self.db.execute('PRAGMA journal_mode=WAL')
+        self.db.execute('PRAGMA synchronous=FULL')
+        self.db.execute('PRAGMA busy_timeout=15000')
+        migrate(self.db, self.path)
+
+    @staticmethod
+    def now():
+        return dt.datetime.now(dt.timezone.utc).isoformat(timespec='microseconds').replace('+00:00', 'Z')
+
+    @contextlib.contextmanager
+    def transaction(self):
+        with self._lock:
+            depth = getattr(self._local, 'depth', 0)
+            self._local.depth = depth + 1
+            if depth == 0:
+                self.db.execute('BEGIN IMMEDIATE')
+            try:
+                yield self
+                if depth == 0:
+                    self.db.execute('COMMIT')
+            except BaseException:
+                if depth == 0 and self.db.in_transaction:
+                    self.db.execute('ROLLBACK')
+                raise
+            finally:
+                self._local.depth = depth
+
+    def create(self, kind, data, record_id=None):
+        with self.transaction():
+            record_id = record_id or str(uuid.uuid4())
+            now = self.now()
+            record = {**data, 'id': record_id, 'version': 1, 'created_at': now, 'updated_at': now}
+            raw = json.dumps(record, ensure_ascii=False, allow_nan=False)
+            try:
+                self.db.execute('INSERT INTO records(kind,id,topic_id,version,data,created_at,updated_at) VALUES(?,?,?,?,?,?,?)',
+                                (kind, record_id, record.get('topic_id'), 1, raw, now, now))
+                self.db.execute('INSERT INTO versions(kind,id,version,data) VALUES(?,?,?,?)', (kind,record_id,1,raw))
+            except sqlite3.IntegrityError as exc:
+                raise ApiError(409, 'already_exists', '此记录已存在', {'id': record_id}) from exc
+            return record
+
+    def get(self, kind, record_id):
+        with self._lock:
+            row = self.db.execute('SELECT data FROM records WHERE kind=? AND id=?', (kind, record_id)).fetchone()
+            if not row:
+                raise ApiError(404, 'not_found', '记录不存在', {'kind':kind,'id':record_id})
+            return json.loads(row['data'])
+
+    def list(self, kind, topic_id=None, limit=100, offset=0, search=None):
+        try:
+            limit, offset = min(200, max(1,int(limit))), max(0,int(offset))
+        except (TypeError, ValueError) as exc:
+            raise ApiError(400, 'invalid_pagination', '分页参数必须是整数') from exc
+        where, args = ['kind=?'], [kind]
+        if topic_id is not None:
+            where.append('(topic_id=? OR EXISTS (SELECT 1 FROM json_each(records.data,\'$.topic_ids\') WHERE value=?))'); args.extend([topic_id,topic_id])
+        if search:
+            where.append('data LIKE ?'); args.append('%'+search+'%')
+        sql = ' AND '.join(where)
+        with self._lock:
+            total = self.db.execute('SELECT count(*) FROM records WHERE '+sql, args).fetchone()[0]
+            items = self.db.execute('SELECT data FROM records WHERE '+sql+' ORDER BY updated_at DESC,id LIMIT ? OFFSET ?', args+[limit,offset]).fetchall()
+        return {'items':[json.loads(r[0]) for r in items], 'total':total,'offset':offset,'limit':limit,
+                'data_status':'fresh', 'empty_reason':'no_matches' if not total else None}
+
+    def all(self, kind, topic_id=None):
+        with self._lock:
+            if topic_id is None:
+                rows = self.db.execute('SELECT data FROM records WHERE kind=? ORDER BY updated_at DESC,id',(kind,)).fetchall()
+            else:
+                rows = self.db.execute('SELECT data FROM records WHERE kind=? AND (topic_id=? OR EXISTS (SELECT 1 FROM json_each(records.data,\'$.topic_ids\') WHERE value=?)) ORDER BY updated_at DESC,id',(kind,topic_id,topic_id)).fetchall()
+        return [json.loads(r[0]) for r in rows]
+
+    def find(self, kind, field, value):
+        if not field.replace('_','').isalnum():
+            raise ValueError('Invalid field name')
+        with self._lock:
+            rows = self.db.execute(f"SELECT data FROM records WHERE kind=? AND json_extract(data,'$.{field}') IS ?",(kind,value)).fetchall()
+        return [json.loads(r[0]) for r in rows]
+
+    def update(self, kind, record_id, data, expected_version):
+        with self.transaction():
+            old = self.get(kind, record_id)
+            if isinstance(expected_version, bool) or not isinstance(expected_version,int):
+                raise ApiError(400, 'expected_version_required', '修改时必须提交当前版本号')
+            if old['version'] != expected_version:
+                raise ApiError(409, 'version_conflict', '记录已被其他窗口修改，请查看最新版本后重新保存', {'current_version':old['version'],'current':old})
+            clean = {k:v for k,v in data.items() if k not in ('id','version','created_at','updated_at','expected_version')}
+            record = {**old, **clean, 'version':old['version']+1,'updated_at':self.now()}
+            raw = json.dumps(record,ensure_ascii=False,allow_nan=False)
+            self.db.execute('UPDATE records SET topic_id=?,version=?,data=?,updated_at=? WHERE kind=? AND id=?',
+                            (record.get('topic_id'),record['version'],raw,record['updated_at'],kind,record_id))
+            self.db.execute('INSERT INTO versions(kind,id,version,data) VALUES(?,?,?,?)', (kind,record_id,record['version'],raw))
+            return record
+
+    def history(self, kind, record_id):
+        self.get(kind,record_id)
+        with self._lock:
+            return [json.loads(r[0]) for r in self.db.execute('SELECT data FROM versions WHERE kind=? AND id=? ORDER BY version',(kind,record_id))]
+
+    def version(self, version_id):
+        try:
+            record_id, version = version_id.rsplit('@',1)
+            version = int(version)
+        except (ValueError,AttributeError) as exc:
+            raise ApiError(400,'invalid_reference','证据引用必须包含明确版本 ID') from exc
+        with self._lock:
+            row = self.db.execute('SELECT data FROM versions WHERE kind=? AND id=? AND version=?',('evidence',record_id,version)).fetchone()
+        if not row:
+            raise ApiError(422,'missing_evidence_version','引用的证据版本不存在',{'version_id':version_id})
+        return json.loads(row[0])
+
+    def publish(self, event_type, aggregate_id, payload, event_id=None):
+        with self.transaction():
+            event_id = event_id or str(uuid.uuid4())
+            self.db.execute('INSERT OR IGNORE INTO outbox(id,type,aggregate_id,payload,created_at) VALUES(?,?,?,?,?)',
+                            (event_id,event_type,aggregate_id,json.dumps(payload,ensure_ascii=False),self.now()))
+            return event_id
+
+    def drain(self, consumers, limit=100):
+        delivered = 0
+        # Process each event and all consumers in one transaction. New events are handled on next tick.
+        with self._lock:
+            ids = [r[0] for r in self.db.execute('SELECT id FROM outbox WHERE delivered_at IS NULL ORDER BY created_at LIMIT ?',(limit,))]
+        for event_id in ids:
+            try:
+                with self.transaction():
+                    row = self.db.execute('SELECT * FROM outbox WHERE id=? AND delivered_at IS NULL',(event_id,)).fetchone()
+                    if row is None:
+                        continue
+                    event = dict(row); event['payload'] = json.loads(event['payload'])
+                    for consumer in consumers:
+                        consumer(self,event)
+                    self.db.execute('UPDATE outbox SET delivered_at=?,last_error=NULL WHERE id=?',(self.now(),event_id))
+                    delivered += 1
+            except Exception as exc:
+                with self.transaction():
+                    self.db.execute('UPDATE outbox SET attempts=attempts+1,last_error=? WHERE id=?',(type(exc).__name__,event_id))
+        return delivered
+
+    def integrity(self):
+        with self._lock:
+            check = self.db.execute('PRAGMA integrity_check').fetchone()[0]
+            foreign = self.db.execute('PRAGMA foreign_key_check').fetchall()
+            broken = self.db.execute('SELECT r.kind,r.id FROM records r LEFT JOIN versions v ON r.kind=v.kind AND r.id=v.id AND r.version=v.version WHERE v.id IS NULL OR v.data!=r.data').fetchall()
+            counts = {r[0]:r[1] for r in self.db.execute('SELECT kind,count(*) FROM records GROUP BY kind')}
+        invalid_refs = []
+        def walk(obj, owner):
+            if isinstance(obj,dict):
+                for k,v in obj.items():
+                    if k.endswith('evidence_version_ids') and isinstance(v,list):
+                        for ref in v:
+                            try: self.version(ref)
+                            except ApiError: invalid_refs.append({'owner':owner,'reference':ref})
+                    else: walk(v,owner)
+            elif isinstance(obj,list):
+                for v in obj: walk(v,owner)
+        with self._lock:
+            rows = self.db.execute('SELECT kind,id,data FROM versions').fetchall()
+        for row in rows:
+            walk(json.loads(row[2]),row[0]+':'+row[1])
+        return {'ok':check=='ok' and not foreign and not broken and not invalid_refs,
+                'sqlite':check,'foreign_key_errors':len(foreign),'version_errors':len(broken),'reference_errors':invalid_refs,'counts':counts}
+
+    def close(self):
+        with self._lock:
+            self.db.close()
