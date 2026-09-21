@@ -56,6 +56,15 @@ def _excerpt_allowed(rights, action):
     return rights.get(action) in (True, "excerpt", "full", "allowed")
 
 
+def _rights_narrowed(before, after):
+    def rank(value):
+        if value in (True, "full", "allowed"): return 3
+        if value == "excerpt": return 2
+        if value in ("metadata", "link_only"): return 1
+        return 0
+    return any(rank(after.get(key)) < rank(before.get(key)) for key in ("store", "display", "export"))
+
+
 def _channel(data):
     return {"source_id": data.get("source_id"), "source_record_id": data.get("source_record_id"), "url": data.get("url"), "publisher": data.get("publisher"), "discovered_at": data.get("discovered_at"), "title": data.get("title")}
 
@@ -253,7 +262,10 @@ def ingest(store, data, *, origin="manual"):
                 return {**_present(old), "deduplicated": True}
             updated = store.update("evidence", old["id"], patch, old["version"])
             _bind_aliases(store, updated)
-            store.publish("evidence.updated", old["id"], _event_payload(updated, patch.get("change_reason", "新增出现渠道或议题关联")))
+            narrowed = _rights_narrowed(old.get("rights", {}), updated.get("rights", {}))
+            reason = "来源许可收窄，相关研究需重审" if narrowed else patch.get("change_reason", "新增出现渠道或议题关联")
+            if narrowed: _mark_dependents(store, updated, reason)
+            store.publish("evidence.updated", old["id"], _event_payload(updated, reason, dependency_review=narrowed))
             return {**_present(updated), "deduplicated": True}
         item.update({"ingest_origin": origin, "first_collected_at": store.now(), "manually_touched": origin == "manual"})
         created = store.create("evidence", item)
@@ -543,7 +555,7 @@ def handle(store, method, segments, body, query):
                 values = []
                 for v in store.history(kind, record_id):
                     shown = _present(v)
-                    if kind == "evidence" and (not _excerpt_allowed(latest.get("rights", {}), "display") or latest.get("status") == "restricted"):
+                    if kind == "evidence" and (not _excerpt_allowed(latest.get("rights", {}), "display") or latest.get("status") == "restricted" or latest.get("deleted")):
                         shown.update({"excerpt": "", "translation": "", "content_restricted": True})
                     values.append(shown)
                 return {"items": values}
@@ -578,6 +590,9 @@ def handle(store, method, segments, body, query):
                     if kind == "evidence" and any(item.get(k) != old.get(k) for k in ("title", "excerpt")):
                         item["change_candidate"] = True
                     updated = store.update(kind, record_id, item, expected(body))
-                    store.publish(f"{kind}.updated", record_id, _event_payload(updated, clean.get("change_reason")))
+                    narrowed = kind == "evidence" and _rights_narrowed(old.get("rights", {}), updated.get("rights", {}))
+                    reason = "来源许可收窄，相关研究需重审" if narrowed else clean.get("change_reason")
+                    if narrowed: _mark_dependents(store, updated, reason)
+                    store.publish(f"{kind}.updated", record_id, _event_payload(updated, reason, dependency_review=narrowed))
                     return _present(updated)
     raise ApiError(405, "method_not_allowed", "此资源不支持该操作；历史记录不能直接删除")
