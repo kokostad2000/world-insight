@@ -72,7 +72,7 @@
 | GDELT/RSS/WDI真实免费源 | 通过 | RSS/WDI实际成功；[正式GKG Scheduler](evidence/gkg-live-scheduler.md)2真实GET/45材料及[浏览器](evidence/browser-integration-round-two.md)通过。DOC仍超时，GKG仅最新批次元数据，不代表DOC恢复或历史完整。 |
 | 10条不同类型官方材料人工登记复核 | 通过 | [实际人工登记与元数据复核](evidence/official-material-review.md)：10条、8类；42次本机正式HTTP均200。8条Fed本次官方页核对，2条WDI仅既有真实API缓存核对并保留当前页504/超时；无正文或事实判断扩张。 |
 | 5个真实议题连续7天 | 待观察 | 尚未开始 |
-| 抽查50材料/20说法事件/10判断 | 未执行 | 结构质量检查 |
+| 抽查50材料/20说法事件/10判断 | 未执行 | [七天试运行协议](TRIAL.md)及只读快照工具已准备数量、版本、来源、时间和关联入口；真实五议题尚未积累并逐条人工复核，不能以工具或fixture抵扣。 |
 | 10分钟效率及遗漏 | 待观察 | 真实用户观察 |
 | 2万材料/5千事件说法/5并发性能 | 通过 | [最终API与浏览器复测](evidence/policy-performance-targeted.md)：筛选P95 0.360秒、搜索0.489秒；5标签40样本首可用P95 0.704秒，40/40 DOM有效、0控制台错误。限记录的暖本机元数据夹具。 |
 | 第11.6节交付文件与Mac演练 | 通过 | [交付审计](handoffs/delivery-audit.md)与最终提交范围证明文件齐全；Finder双击、终端启动、配置阻断、备份恢复、更新与回退均有实际Mac证据。真实睡眠仍按AC-36独立保持未执行。 |

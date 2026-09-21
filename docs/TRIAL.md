@@ -46,3 +46,24 @@
 3. 列表证据写明分页范围，不能只以第一页20条代表全部。电脑停机、睡眠、断网、未检查和无法补齐的区间都保留原状，不修改系统时间补写成功。
 4. 实际检查人记录“开始查看到找到关键新增”的用时、变化ID，以及之后发现的遗漏；浏览器/API响应时间不能代替约十分钟的用户研究效率。
 5. 七日结束后逐条抽查50材料、20事件/说法、10判断的ID/版本/来源/时间/关联/未知状态/复核人，并完成十条不同类型官方材料登记复核。数量不足时保留缺口。
+
+## 只读快照辅助工具
+
+`scripts/capture_trial_snapshot.py`从指定研究库以SQLite只读模式生成一个不可覆盖的JSON快照。它要求恰好五个不同且未标记为fixture的议题；`start`阶段还要求五个议题均为active且followed。工具记录实例、提交、议题、来源预算、采集任务、逐议题数量、材料/事件/说法/判断版本与时间引用、收取凭据及当前状态摘要哈希，不启动服务、不联网，也不修改研究库。
+
+首次、每日和结束检查分别执行一次，并为每次输出选择全新的文件名：
+
+```bash
+python3 scripts/capture_trial_snapshot.py \
+  "/你的真实试运行数据目录" \
+  "/你的本地试运行记录/day-01-start.json" \
+  --phase start --reviewer "实际检查人" \
+  --expected-instance-id "启动清单中的 instance_id" \
+  --topic-id "议题1 ID" --topic-id "议题2 ID" \
+  --topic-id "议题3 ID" --topic-id "议题4 ID" \
+  --topic-id "议题5 ID"
+```
+
+后续将`--phase`改为`daily`或`end`并使用新输出文件。目标文件已存在时脚本直接拒绝，防止覆盖过去证据。JSON中的`end_sample_readiness`只判断记录数量是否达到50/20/10，并不替代逐条人工结构核验；`human_fields_still_required`列出的睡眠/断网、重复与延迟解释、纠错、实际用时和遗漏仍须在每日表按真实观察填写。任何单次快照都保持`actual_seven_day_trial_complete=false`的口径。
+
+工具的[隔离合成验证](evidence/trial-snapshot-tool-validation-20260921.md)只证明只读快照、拒绝覆盖和fixture阻断行为；不能复制进本表冒充真实日期记录。
