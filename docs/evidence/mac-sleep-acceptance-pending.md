@@ -15,9 +15,15 @@ python3 scripts/build_sleep_acceptance_fixture.py \
 
 2026-09-21本地准备验证使用新目录`/private/tmp/world-insight-sleep-ac36-prepared-20260921-2`成功：instance_id为`1d40d5d7-9a7b-4a40-93c1-dca61a911916`，议题ID为`e8af7a3c-b120-4b13-8651-bed7bbbe0fc3`，Fed预算4、间隔300秒，未生成`runtime.json`且外部请求为0。对同一非空目录再次运行时以退出码1拒绝。此结果只证明隔离准备可重复执行和防误覆写，不证明Scheduler、真实睡眠或唤醒恢复。
 
+## 真实来源睡前预演
+
+同一目录随后用正式`start.sh`和Scheduler启动，未使用模拟响应。进程PID `41887`、instance_id保持不变；Fed RSS于`2026-09-21T15:08:46.350687Z`成功完成任务`job-a5631d34d4892e62e841f9c3@3`，请求预算从0变为1/4，写入16条材料和16条独立`evidence_acquisition`凭据。任务`covered_until`等于本地成功检查时间，来源`data_as_of`仍为`2026-09-18T15:00:00Z`，16条材料保留各自发布时间且`event_time`为空，没有把采集或预演时间伪装成事件时间。
+
+完整睡前快照保存在隔离数据目录的`sleep-before.json`（17,181字节），其SHA-256、来源/任务字段及16条材料和收取凭据已固化为[脱敏基线JSON](mac-sleep-before-20260921.json)。服务日志记录`15:08:46Z`启动和`15:10:52Z`正常停止；停止结果`data_preserved=true`且`runtime.json`已移除。等待用户确认期间不保持Scheduler运行，避免每300秒继续消耗有限预算。该次预演证明正式免费来源、任务、材料和收取凭据可形成基线；因为进程在睡眠前已停止，仍不构成真实睡眠验收。
+
 实际执行需按以下顺序完成：
 
-1. 启动该目录且保留Scheduler，等待Fed RSS首个任务成功；记录PID、instance_id、source/job版本、`requests_today`、`last_success`、`covered_until`和材料ID/发布时间/首次采集时间。
+1. 用户确认睡眠窗口后重新启动该目录且保留Scheduler；记录新的睡前PID，并以现有成功任务和`sleep-before.json`为基线。若重启后状态异常，先停止，不进入睡眠。
 2. 在下一动作确实会让Mac睡眠时取得用户确认，再执行真实睡眠至少660秒。睡眠会中断当前交互和本机任务，因此不能预先代替用户决定。
 3. 唤醒后确认原PID恢复且只有一份采集器；等待一次到期检查，记录预算增量、任务重试/完成、`coverage_gaps`和最近收取凭据。
 4. 页面核对旧材料发布时间/事件时间没有被改为唤醒时间，RSS不支持补齐的停机区间明确显示为缺口；重复材料不得产生虚假新事件或版本。

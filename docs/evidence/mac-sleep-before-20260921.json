@@ -1,0 +1,356 @@
+{
+  "evidence_type": "mac_sleep_before_baseline",
+  "fixture_topic": true,
+  "external_source_response": "real_fed_rss",
+  "actual_sleep_performed": false,
+  "captured_at": "2026-09-21T15:10:30.469326Z",
+  "runtime": {
+    "pid": 41887,
+    "port": 8897,
+    "data_dir": "/private/tmp/world-insight-sleep-ac36-prepared-20260921-2",
+    "root": "/Users/zhanglike/Desktop/world-insight",
+    "instance_id": "1d40d5d7-9a7b-4a40-93c1-dca61a911916",
+    "version": "0.1.0",
+    "started_at": "2026-09-21T15:08:46.349105Z"
+  },
+  "source": {
+    "id": "source-fed",
+    "version": 5,
+    "enabled": true,
+    "status": "ready",
+    "budget_daily": 4,
+    "interval_seconds": 300,
+    "requests_today": 1,
+    "budget_date": "2026-09-21",
+    "last_attempt": "2026-09-21T15:08:46.350687Z",
+    "last_success": "2026-09-21T15:08:46.350687Z",
+    "data_as_of": "2026-09-18T15:00:00Z",
+    "next_check": "2026-09-21T15:13:46.348871Z",
+    "last_result_count": 16,
+    "coverage_gaps": [],
+    "etag": "\"2a27c06a7e47dd1:0\"",
+    "last_modified": "Fri, 18 Sep 2026 15:00:17 GMT"
+  },
+  "job": {
+    "id": "job-a5631d34d4892e62e841f9c3",
+    "version": 3,
+    "source_id": "source-fed",
+    "topic_id": "e8af7a3c-b120-4b13-8651-bed7bbbe0fc3",
+    "state": "complete",
+    "attempts": 0,
+    "request_count": 1,
+    "last_success": "2026-09-21T15:08:46.350687Z",
+    "data_as_of": "2026-09-18T15:00:00Z",
+    "covered_until": "2026-09-21T15:08:46.350687Z",
+    "last_result_count": 16,
+    "coverage_gaps": [],
+    "gap_start": null,
+    "gap_end": null,
+    "etag": "\"2a27c06a7e47dd1:0\"",
+    "last_modified": "Fri, 18 Sep 2026 15:00:17 GMT"
+  },
+  "material_count": 16,
+  "acquisition_receipt_count": 16,
+  "materials": [
+    {
+      "id": "9d0797cd-8d84-47e3-9421-7b94996232f7",
+      "version": 1,
+      "source_id": "source-fed",
+      "source_record_id": "https://www.federalreserve.gov/newsevents/pressreleases/enforcement20260730a.htm",
+      "published_at": "2026-07-30T15:00:00Z",
+      "event_time": null,
+      "title": "Federal Reserve Board issues enforcement actions with former employee of Regions Bank and former employee of First Interstate Bank",
+      "acquisition": {
+        "evidence_version_id": "9d0797cd-8d84-47e3-9421-7b94996232f7@1",
+        "source_version": 4,
+        "job_id": "job-a5631d34d4892e62e841f9c3",
+        "job_version": 2,
+        "collected_at": "2026-09-21T15:08:46.794349Z",
+        "received_at": "2026-09-21T15:08:46.825307Z",
+        "is_fixture": false
+      }
+    },
+    {
+      "id": "1a9c28bb-f5bc-4e59-b05e-6d172e765679",
+      "version": 1,
+      "source_id": "source-fed",
+      "source_record_id": "https://www.federalreserve.gov/newsevents/pressreleases/bcreg20260731b.htm",
+      "published_at": "2026-07-31T14:00:00Z",
+      "event_time": null,
+      "title": "Federal Reserve Board requests comment on a proposal to modernize its rule governing the extension of credit to bank \"insiders\"—bank executives, board members and major shareholders who could potentially influence a bank's lending decisions",
+      "acquisition": {
+        "evidence_version_id": "1a9c28bb-f5bc-4e59-b05e-6d172e765679@1",
+        "source_version": 4,
+        "job_id": "job-a5631d34d4892e62e841f9c3",
+        "job_version": 2,
+        "collected_at": "2026-09-21T15:08:46.794349Z",
+        "received_at": "2026-09-21T15:08:46.823421Z",
+        "is_fixture": false
+      }
+    },
+    {
+      "id": "b1eac48a-0ac1-4909-b595-6877e538e029",
+      "version": 1,
+      "source_id": "source-fed",
+      "source_record_id": "https://www.federalreserve.gov/newsevents/pressreleases/bcreg20260731a.htm",
+      "published_at": "2026-07-31T14:00:00Z",
+      "event_time": null,
+      "title": "Federal Reserve Board requests comment on a proposal to modernize rules for mutual banking organizations",
+      "acquisition": {
+        "evidence_version_id": "b1eac48a-0ac1-4909-b595-6877e538e029@1",
+        "source_version": 4,
+        "job_id": "job-a5631d34d4892e62e841f9c3",
+        "job_version": 2,
+        "collected_at": "2026-09-21T15:08:46.794349Z",
+        "received_at": "2026-09-21T15:08:46.821625Z",
+        "is_fixture": false
+      }
+    },
+    {
+      "id": "a5cf3273-8c5f-45d1-8254-8b622927f975",
+      "version": 1,
+      "source_id": "source-fed",
+      "source_record_id": "https://www.federalreserve.gov/newsevents/pressreleases/orders20260804a.htm",
+      "published_at": "2026-08-04T20:30:00Z",
+      "event_time": null,
+      "title": "Federal Reserve Board announces approval of the application by Banco Santander, S.A. and Santander Holdings USA, Inc.",
+      "acquisition": {
+        "evidence_version_id": "a5cf3273-8c5f-45d1-8254-8b622927f975@1",
+        "source_version": 4,
+        "job_id": "job-a5631d34d4892e62e841f9c3",
+        "job_version": 2,
+        "collected_at": "2026-09-21T15:08:46.794349Z",
+        "received_at": "2026-09-21T15:08:46.819793Z",
+        "is_fixture": false
+      }
+    },
+    {
+      "id": "27694c12-7410-4bd6-985f-8edf37eed257",
+      "version": 1,
+      "source_id": "source-fed",
+      "source_record_id": "https://www.federalreserve.gov/newsevents/pressreleases/orders20260804b.htm",
+      "published_at": "2026-08-04T20:30:00Z",
+      "event_time": null,
+      "title": "Federal Reserve Board announces approval of the application by FS Bancorp, Inc.",
+      "acquisition": {
+        "evidence_version_id": "27694c12-7410-4bd6-985f-8edf37eed257@1",
+        "source_version": 4,
+        "job_id": "job-a5631d34d4892e62e841f9c3",
+        "job_version": 2,
+        "collected_at": "2026-09-21T15:08:46.794349Z",
+        "received_at": "2026-09-21T15:08:46.817795Z",
+        "is_fixture": false
+      }
+    },
+    {
+      "id": "42233e92-a523-4129-a09e-95a2b68f98ef",
+      "version": 1,
+      "source_id": "source-fed",
+      "source_record_id": "https://www.federalreserve.gov/newsevents/pressreleases/orders20260804c.htm",
+      "published_at": "2026-08-04T20:30:00Z",
+      "event_time": null,
+      "title": "Federal Reserve Board announces approval of the application by Coastal Bend Bancshares, Inc.",
+      "acquisition": {
+        "evidence_version_id": "42233e92-a523-4129-a09e-95a2b68f98ef@1",
+        "source_version": 4,
+        "job_id": "job-a5631d34d4892e62e841f9c3",
+        "job_version": 2,
+        "collected_at": "2026-09-21T15:08:46.794349Z",
+        "received_at": "2026-09-21T15:08:46.815807Z",
+        "is_fixture": false
+      }
+    },
+    {
+      "id": "5db19c78-7538-48b8-ae9b-7dcf6a195303",
+      "version": 1,
+      "source_id": "source-fed",
+      "source_record_id": "https://www.federalreserve.gov/newsevents/pressreleases/enforcement20260813a.htm",
+      "published_at": "2026-08-13T15:00:00Z",
+      "event_time": null,
+      "title": "Federal Reserve Board issues enforcement action with former employee of Regions Bank",
+      "acquisition": {
+        "evidence_version_id": "5db19c78-7538-48b8-ae9b-7dcf6a195303@1",
+        "source_version": 4,
+        "job_id": "job-a5631d34d4892e62e841f9c3",
+        "job_version": 2,
+        "collected_at": "2026-09-21T15:08:46.794349Z",
+        "received_at": "2026-09-21T15:08:46.814012Z",
+        "is_fixture": false
+      }
+    },
+    {
+      "id": "0c5c2991-a16b-4966-bb7a-ae2a48344e4e",
+      "version": 1,
+      "source_id": "source-fed",
+      "source_record_id": "https://www.federalreserve.gov/newsevents/pressreleases/enforcement20260820b.htm",
+      "published_at": "2026-08-20T15:00:00Z",
+      "event_time": null,
+      "title": "Federal Reserve Board issues enforcement action with SouthPoint Bancshares, Inc. and announces termination of enforcement action with Deutsche Bank AG, DB USA Corporation, and Deutsche Bank AG New York Branch",
+      "acquisition": {
+        "evidence_version_id": "0c5c2991-a16b-4966-bb7a-ae2a48344e4e@1",
+        "source_version": 4,
+        "job_id": "job-a5631d34d4892e62e841f9c3",
+        "job_version": 2,
+        "collected_at": "2026-09-21T15:08:46.794349Z",
+        "received_at": "2026-09-21T15:08:46.812291Z",
+        "is_fixture": false
+      }
+    },
+    {
+      "id": "1eb86341-517d-46a1-a529-c253a77cbc1c",
+      "version": 1,
+      "source_id": "source-fed",
+      "source_record_id": "https://www.federalreserve.gov/newsevents/pressreleases/enforcement20260820a.htm",
+      "published_at": "2026-08-20T15:00:00Z",
+      "event_time": null,
+      "title": "Federal Reserve Board issues enforcement actions with former employee of Regions Bank and former employee of United Community Bank",
+      "acquisition": {
+        "evidence_version_id": "1eb86341-517d-46a1-a529-c253a77cbc1c@1",
+        "source_version": 4,
+        "job_id": "job-a5631d34d4892e62e841f9c3",
+        "job_version": 2,
+        "collected_at": "2026-09-21T15:08:46.794349Z",
+        "received_at": "2026-09-21T15:08:46.810560Z",
+        "is_fixture": false
+      }
+    },
+    {
+      "id": "685a57e7-a571-410c-8375-1e52dbcfeae4",
+      "version": 1,
+      "source_id": "source-fed",
+      "source_record_id": "https://www.federalreserve.gov/newsevents/pressreleases/orders20260820a.htm",
+      "published_at": "2026-08-20T20:00:00Z",
+      "event_time": null,
+      "title": "Federal Reserve Board announces approval of application by National Westminster Bank Plc",
+      "acquisition": {
+        "evidence_version_id": "685a57e7-a571-410c-8375-1e52dbcfeae4@1",
+        "source_version": 4,
+        "job_id": "job-a5631d34d4892e62e841f9c3",
+        "job_version": 2,
+        "collected_at": "2026-09-21T15:08:46.794349Z",
+        "received_at": "2026-09-21T15:08:46.808706Z",
+        "is_fixture": false
+      }
+    },
+    {
+      "id": "deec0674-ddf5-4afc-8234-f9e900e8f7c7",
+      "version": 1,
+      "source_id": "source-fed",
+      "source_record_id": "https://www.federalreserve.gov/newsevents/pressreleases/enforcement20260827a.htm",
+      "published_at": "2026-08-27T15:00:00Z",
+      "event_time": null,
+      "title": "Federal Reserve Board issues enforcement action with former employee of Banco Popular de Puerto Rico",
+      "acquisition": {
+        "evidence_version_id": "deec0674-ddf5-4afc-8234-f9e900e8f7c7@1",
+        "source_version": 4,
+        "job_id": "job-a5631d34d4892e62e841f9c3",
+        "job_version": 2,
+        "collected_at": "2026-09-21T15:08:46.794349Z",
+        "received_at": "2026-09-21T15:08:46.806820Z",
+        "is_fixture": false
+      }
+    },
+    {
+      "id": "7b3dcf91-d887-4e85-9492-0a13eb9d900e",
+      "version": 1,
+      "source_id": "source-fed",
+      "source_record_id": "https://www.federalreserve.gov/newsevents/pressreleases/enforcement20260904a.htm",
+      "published_at": "2026-09-04T15:00:00Z",
+      "event_time": null,
+      "title": "Federal Reserve Board announces termination of enforcement actions with United Texas Bank, Quontic Bank Acquisition Corp., and Quontic Bank Holdings Corp.",
+      "acquisition": {
+        "evidence_version_id": "7b3dcf91-d887-4e85-9492-0a13eb9d900e@1",
+        "source_version": 4,
+        "job_id": "job-a5631d34d4892e62e841f9c3",
+        "job_version": 2,
+        "collected_at": "2026-09-21T15:08:46.794349Z",
+        "received_at": "2026-09-21T15:08:46.804783Z",
+        "is_fixture": false
+      }
+    },
+    {
+      "id": "d3c0cbfb-9d4a-415c-88fa-8e90121e4b6a",
+      "version": 1,
+      "source_id": "source-fed",
+      "source_record_id": "https://www.federalreserve.gov/newsevents/pressreleases/monetary20260916b.htm",
+      "published_at": "2026-09-16T18:00:00Z",
+      "event_time": null,
+      "title": "Federal Reserve Board and Federal Open Market Committee release economic projections from the September 15-16 FOMC meeting",
+      "acquisition": {
+        "evidence_version_id": "d3c0cbfb-9d4a-415c-88fa-8e90121e4b6a@1",
+        "source_version": 4,
+        "job_id": "job-a5631d34d4892e62e841f9c3",
+        "job_version": 2,
+        "collected_at": "2026-09-21T15:08:46.794349Z",
+        "received_at": "2026-09-21T15:08:46.802466Z",
+        "is_fixture": false
+      }
+    },
+    {
+      "id": "de99aeac-e0a3-4093-b992-955b131e3886",
+      "version": 1,
+      "source_id": "source-fed",
+      "source_record_id": "https://www.federalreserve.gov/newsevents/pressreleases/monetary20260916a.htm",
+      "published_at": "2026-09-16T18:00:00Z",
+      "event_time": null,
+      "title": "Federal Reserve issues FOMC statement",
+      "acquisition": {
+        "evidence_version_id": "de99aeac-e0a3-4093-b992-955b131e3886@1",
+        "source_version": 4,
+        "job_id": "job-a5631d34d4892e62e841f9c3",
+        "job_version": 2,
+        "collected_at": "2026-09-21T15:08:46.794349Z",
+        "received_at": "2026-09-21T15:08:46.800483Z",
+        "is_fixture": false
+      }
+    },
+    {
+      "id": "cb46fd0a-4462-41d8-ae34-dea0d5a87450",
+      "version": 1,
+      "source_id": "source-fed",
+      "source_record_id": "https://www.federalreserve.gov/newsevents/pressreleases/enforcement20260918a.htm",
+      "published_at": "2026-09-18T15:00:00Z",
+      "event_time": null,
+      "title": "Federal Reserve Board issues enforcement actions with former employee of Northstar Bank, former employee of American Express Travel Related Services Company, Inc., and former employee of Regions Bank",
+      "acquisition": {
+        "evidence_version_id": "cb46fd0a-4462-41d8-ae34-dea0d5a87450@1",
+        "source_version": 4,
+        "job_id": "job-a5631d34d4892e62e841f9c3",
+        "job_version": 2,
+        "collected_at": "2026-09-21T15:08:46.794349Z",
+        "received_at": "2026-09-21T15:08:46.798686Z",
+        "is_fixture": false
+      }
+    },
+    {
+      "id": "90a534d0-944b-4ebf-9b1a-117983cab0d0",
+      "version": 1,
+      "source_id": "source-fed",
+      "source_record_id": "https://www.federalreserve.gov/newsevents/pressreleases/enforcement20260918b.htm",
+      "published_at": "2026-09-18T15:00:00Z",
+      "event_time": null,
+      "title": "Federal Reserve Board announces termination of enforcement action with SNB Bancshares and Bank of Eufaula",
+      "acquisition": {
+        "evidence_version_id": "90a534d0-944b-4ebf-9b1a-117983cab0d0@1",
+        "source_version": 4,
+        "job_id": "job-a5631d34d4892e62e841f9c3",
+        "job_version": 2,
+        "collected_at": "2026-09-21T15:08:46.794349Z",
+        "received_at": "2026-09-21T15:08:46.796787Z",
+        "is_fixture": false
+      }
+    }
+  ],
+  "normal_stop": {
+    "at": "2026-09-21T15:10:52.882648Z",
+    "pid": 41887,
+    "data_preserved": true,
+    "runtime_removed": true
+  },
+  "full_local_snapshot": {
+    "path": "/private/tmp/world-insight-sleep-ac36-prepared-20260921-2/sleep-before.json",
+    "bytes": 17181,
+    "sha256": "64736c4cfa9261651e5d30f49246065b6f0c8f10c55fd042e529fe290aff5451"
+  },
+  "boundary": "This preserves a real pre-sleep collection baseline. The service was stopped before any OS sleep, so AC-36 remains unexecuted."
+}
