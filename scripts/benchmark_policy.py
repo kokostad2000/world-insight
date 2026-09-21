@@ -94,6 +94,7 @@ class Measurements:
         self.original_dispatch = app.dispatch
         self.original_policy = knowledge.policy_context
         self.original_snapshots = store.snapshots
+        self.original_policy_snapshots = store.policy_snapshots
         self.original_transaction = store.transaction
 
     def dispatch(self, method, path, body, query):
@@ -111,10 +112,10 @@ class Measurements:
                 self.records[key] = record
             self.local.record = None
 
-    def policy(self, store):
+    def policy(self, store, *args, **kwargs):
         started = time.perf_counter()
         try:
-            return self.original_policy(store)
+            return self.original_policy(store, *args, **kwargs)
         finally:
             record = getattr(self.local, 'record', None)
             if record is not None:
@@ -124,6 +125,16 @@ class Measurements:
     def snapshots(self):
         started = time.perf_counter()
         rows = self.original_snapshots()
+        record = getattr(self.local, 'record', None)
+        if record is not None:
+            record['snapshot_calls'] += 1
+            record['snapshot_seconds'] += time.perf_counter() - started
+            record['snapshot_rows'] += len(rows)
+        return rows
+
+    def policy_snapshots(self, evidence_ids):
+        started = time.perf_counter()
+        rows = self.original_policy_snapshots(evidence_ids)
         record = getattr(self.local, 'record', None)
         if record is not None:
             record['snapshot_calls'] += 1
@@ -151,7 +162,7 @@ class Measurements:
     @contextlib.contextmanager
     def enabled(self):
         with patch.object(self.app, 'dispatch', self.dispatch), patch.object(self.store, 'snapshots', self.snapshots), \
-                patch.object(self.store, 'transaction', self.transaction), \
+                patch.object(self.store, 'transaction', self.transaction), patch.object(self.store, 'policy_snapshots', self.policy_snapshots), \
                 patch.object(knowledge, 'policy_context', self.policy), patch.object(research, 'policy_context', self.policy):
             yield
 

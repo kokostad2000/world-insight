@@ -1,5 +1,6 @@
 """Transactional, versioned storage. Domain validation belongs to module owners."""
 import contextlib
+import copy
 import datetime as dt
 import json
 import sqlite3
@@ -18,6 +19,7 @@ class Store:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._local = threading.local()
+        self._policy_index = None
         self.db = sqlite3.connect(str(self.path), isolation_level=None, check_same_thread=False, timeout=15)
         self.db.row_factory = sqlite3.Row
         self.db.execute('PRAGMA foreign_keys=ON')
@@ -43,6 +45,7 @@ class Store:
                 if depth == 0:
                     self.db.execute('COMMIT')
             except BaseException:
+                self._policy_index = None
                 if depth == 0 and self.db.in_transaction:
                     self.db.execute('ROLLBACK')
                 raise
@@ -61,6 +64,7 @@ class Store:
                 self.db.execute('INSERT INTO versions(kind,id,version,data) VALUES(?,?,?,?)', (kind,record_id,1,raw))
             except sqlite3.IntegrityError as exc:
                 raise ApiError(409, 'already_exists', '此记录已存在', {'id': record_id}) from exc
+            self._policy_index = None
             return record
 
     def get(self, kind, record_id):
@@ -112,6 +116,60 @@ class Store:
             rows = self.db.execute('SELECT kind,data FROM versions ORDER BY kind,id,version').fetchall()
         return [{'kind': row[0], 'record': json.loads(row[1])} for row in rows]
 
+    def policy_snapshots(self, evidence_ids):
+        """Select complete requested histories, origins and historical referrers.
+
+        The reusable index contains immutable facts, never permission decisions or
+        clock-dependent expiry. Local writes, rollbacks, same-version redaction
+        and external SQLite commits invalidate it. Call inside the read transaction.
+        Returned copies cannot alter the index or another request's policy context.
+        """
+        with self._lock:
+            revision = (self.db.total_changes, self.db.execute('PRAGMA data_version').fetchone()[0])
+            if self._policy_index is None or self._policy_index['revision'] != revision:
+                histories, incoming, policies = {}, {}, []
+                def refs(value):
+                    found = set()
+                    if isinstance(value, dict):
+                        for key, child in value.items():
+                            if key.endswith('evidence_version_ids') and isinstance(child, list):
+                                found.update(ref.rsplit('@', 1)[0] for ref in child if isinstance(ref, str) and '@' in ref)
+                            elif key in ('evidence_id', 'origin_evidence_id') and isinstance(child, str):
+                                found.add(child)
+                            else:
+                                found.update(refs(child))
+                    elif isinstance(value, list):
+                        for child in value:
+                            found.update(refs(child))
+                    return found
+                for row in self.db.execute('SELECT kind,id,version,data FROM versions ORDER BY kind,id,version'):
+                    entry = {'kind': row['kind'], 'record': json.loads(row['data'])}
+                    key = (row['kind'], row['id'])
+                    histories.setdefault(key, []).append(entry)
+                    if row['kind'] in ('source', 'recovery_source_policy', 'retention_settings'):
+                        policies.append(entry)
+                    for evidence_id in refs(entry['record']):
+                        incoming.setdefault(evidence_id, []).append(entry)
+                self._policy_index = {'revision': revision, 'histories': histories,
+                                      'incoming': incoming, 'policies': policies}
+            index, seen, pending = self._policy_index, set(), list(evidence_ids)
+            selected = list(index['policies'])
+            while pending:
+                record_id = pending.pop()
+                if record_id in seen:
+                    continue
+                seen.add(record_id)
+                history = index['histories'].get(('evidence', record_id), [])
+                selected.extend(history)
+                pending.extend(entry['record']['origin_evidence_id'] for entry in history
+                               if entry['record'].get('origin_evidence_id'))
+            # Real historical snapshots provide candidate-retention protection.
+            # A removed citation or an old original link continues to protect its target.
+            for record_id in seen:
+                selected.extend(index['incoming'].get(record_id, []))
+            unique = {(entry['kind'], entry['record']['id'], entry['record']['version']): entry for entry in selected}
+            return copy.deepcopy(list(unique.values()))
+
     def redact_content(self, kind, record_id, expected_version, reason, operation_id):
         """Explicit licensed-content expiry exception to immutable payload snapshots.
 
@@ -126,6 +184,7 @@ class Store:
                 return old
             if old['version'] != expected_version:
                 raise ApiError(409, 'version_conflict', '材料在清理前已变化，请重新预览')
+            self._policy_index = None
             timestamp = self.now()
             for snapshot in self.history(kind, record_id):
                 snapshot.update({'excerpt': '', 'translation': '', 'content_fingerprint': None,
@@ -166,6 +225,7 @@ class Store:
             self.db.execute('UPDATE records SET topic_id=?,version=?,data=?,updated_at=? WHERE kind=? AND id=?',
                             (record.get('topic_id'),record['version'],raw,record['updated_at'],kind,record_id))
             self.db.execute('INSERT INTO versions(kind,id,version,data) VALUES(?,?,?,?)', (kind,record_id,record['version'],raw))
+            self._policy_index = None
             return record
 
     def history(self, kind, record_id):

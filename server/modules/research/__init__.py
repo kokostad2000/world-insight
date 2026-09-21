@@ -214,10 +214,10 @@ def _evidence_view(record, action, context):
 
 def bundle(store, topic_id, include_history=False, action="display"):
     with store.transaction():
-        return _bundle(store, topic_id, include_history, action, policy_context(store))
+        return _bundle(store, topic_id, include_history, action)
 
 
-def _bundle(store, topic_id, include_history, action, context):
+def _bundle(store, topic_id, include_history, action):
     result = {"topic": store.get("topic", topic_id)}
     for key, kind in (("evidence", "evidence"), ("claims", "claim"), ("events", "event"), ("judgments", "judgment"), ("scenarios", "scenario"), ("impact_paths", "impact_path"), ("reviews", "review"), ("observations", "observation")):
         result[key] = store.all(kind, topic_id=topic_id)
@@ -247,6 +247,8 @@ def _bundle(store, topic_id, include_history, action, context):
         for key, kind in (("evidence", "evidence"), ("claims", "claim"), ("events", "event"), ("judgments", "judgment"), ("scenarios", "scenario"), ("impact_paths", "impact_path"), ("reviews", "review"), ("observations", "observation")):
             history[key] = {r["id"]: store.history(kind, r["id"]) for r in result[key]}
         refs.update(_all_refs(history))
+    context = policy_context(store, evidence_ids | {ref.rsplit("@", 1)[0] for ref in refs})
+    if include_history:
         history["evidence"] = {eid: [_evidence_view(v, action, context) for v in versions] for eid, versions in history["evidence"].items()}
         result["histories"] = history
     result["citations"] = [_evidence_view(store.version(ref), action, context) for ref in sorted(refs)]

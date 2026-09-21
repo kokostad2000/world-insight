@@ -137,15 +137,16 @@ def _event_payload(record, reason=None, **extra):
     return {"topic_id": record.get("topic_id"), "topic_ids": record.get("topic_ids", []), "title": record.get("title") or record.get("statement"), "version": record["version"], "version_id": f'{record["id"]}@{record["version"]}', "evidence_id": record["id"], "evidence_version_ids": record.get("evidence_version_ids", []), "occurred_at": record.get("occurred_at"), "reason": reason, **extra}
 
 
-def policy_context(store):
-    """Fresh full-history policy; caller holds the request's Store transaction."""
-    return build_policy_context(store.snapshots(), now=store.now())
+def policy_context(store, evidence_ids=None):
+    """Fresh time/permission decision over complete relevant immutable history."""
+    snapshots = store.snapshots() if evidence_ids is None else store.policy_snapshots(evidence_ids)
+    return build_policy_context(snapshots, now=store.now())
 
 
 def _present(record, action="display", *, store=None, context=None):
     # Non-Evidence domain records contain authored research, not source bodies.
     if context is not None or store is not None:
-        return present_evidence(record, context if context is not None else policy_context(store), action)
+        return present_evidence(record, context if context is not None else policy_context(store, [record["id"]]), action)
     return copy.deepcopy(record)
 
 
@@ -544,7 +545,7 @@ def split(store, evidence_id, body):
         _mark_dependents(store, revised, reason)
         store.publish("evidence.corrected", old["id"], _event_payload(revised, reason, old_version_ids=[f'{old["id"]}@{v["version"]}' for v in store.history("evidence", old["id"])], substantive=True, split_evidence_id=new["id"]))
         store.publish("evidence.created", new["id"], _event_payload(new, reason))
-        context = policy_context(store)
+        context = policy_context(store, [revised["id"], new["id"]])
         return {"original": _present(revised, context=context), "split": _present(new, context=context)}
 
 
@@ -586,13 +587,14 @@ def _relations(store, evidence_id):
 
 def _list(store, kind, query):
     limit, offset = page(query)
-    context = policy_context(store) if kind == "evidence" else None
+    context = None
     simple = not any(query.get(key) for key in ("status", "material_type", "verification_status", "since", "until", "country_code", "similar_to"))
     # Searching an undisplayable body must not reveal its existence via matches.
     if kind == "evidence" and query.get("search"):
         simple = False
     if simple:
         result = store.list(kind, topic_id=query.get("topic_id"), limit=limit, offset=offset, search=query.get("search"))
+        context = policy_context(store, [row["id"] for row in result["items"]]) if kind == "evidence" else None
         result["items"] = [_present(row, context=context) for row in result["items"]]
         if kind == "evidence":
             result["source_counts"] = source_counts(result["items"], store)
@@ -612,10 +614,26 @@ def _list(store, kind, query):
         rows = [{**r, "association_status": "candidate_only"} for r in rows if r["id"] != original["id"] and SequenceMatcher(None, r.get("title", ""), original["title"]).ratio() >= .65]
     if query.get("search"):
         needle = query["search"].lower()
-        rows = [_present(row, context=context) for row in rows]
-        rows = [row for row in rows if needle in json.dumps({key: value for key, value in row.items() if key != "content_policy"}, ensure_ascii=False).lower()]
-        values = rows[offset:offset + limit]
+        # Narrow by stored text first, then match sanitized fields. No hidden-body match escapes.
+        rows = [row for row in rows if needle in json.dumps(row, ensure_ascii=False).lower()]
+        # Matches in these unchanged authored/metadata values survive sanitization.
+        # Only body-dependent matches need permission evaluation before counting;
+        # returned page rows still always go through the same fresh policy context.
+        stable_fields = ("title", "notes", "url", "publisher", "author")
+        stable = {row["id"] for row in rows if any(key in row and
+                  needle in json.dumps(row[key], ensure_ascii=False).lower() for key in stable_fields)}
+        needed = [row["id"] for row in rows if row["id"] not in stable]
+        needed += [row["id"] for row in rows if row["id"] in stable][:offset + limit]
+        context = policy_context(store, needed) if kind == "evidence" else None
+        def matches(row):
+            if row["id"] in stable:
+                return True
+            visible = _present(row, context=context)
+            return needle in json.dumps({key: value for key, value in visible.items() if key != "content_policy"}, ensure_ascii=False).lower()
+        rows = [row for row in rows if matches(row)]
+        values = [_present(row, context=context) for row in rows[offset:offset + limit]]
     else:
+        context = policy_context(store, [row["id"] for row in rows[offset:offset + limit]]) if kind == "evidence" else None
         values = [_present(row, context=context) for row in rows[offset:offset + limit]]
     result = {"items": values, "total": len(rows), "offset": offset, "limit": limit, "data_status": "fresh", "empty_reason": None if rows else "no_matches"}
     if kind == "evidence":
@@ -649,7 +667,7 @@ def _handle(store, method, segments, body, query):
         if len(segments) == 3:
             if segments[2] == "history" and method == "GET":
                 store.get(kind, record_id)
-                context = policy_context(store) if kind == "evidence" else None
+                context = policy_context(store, [record_id]) if kind == "evidence" else None
                 values = [_present(row, context=context) for row in store.history(kind, record_id)]
                 return {"items": values}
             if kind == "evidence" and segments[2] == "backlinks" and method == "GET":
