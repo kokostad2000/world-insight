@@ -223,6 +223,16 @@ class RecoveryPolicyTests(unittest.TestCase):
         self.assertEqual(newer['content_policy']['retention_days'], 7)
         self.assertTrue(all(row['policy_end_at'] is None for row in restored.all(RECOVERY_KIND)))
 
+    def test_collector_versions_of_unchanged_policy_do_not_duplicate_recovery_facts(self):
+        self.shrink()
+        for index in range(10):
+            with patch.object(self.store, 'now', return_value=self.day(4)):
+                self.source = self.store.update('source', self.source['id'], {'requests_today': index + 1}, self.source['version'])
+        restored, manifest = self.restore(5)
+        self.assertEqual(len(restored.all(RECOVERY_KIND)), 1)
+        self.assertEqual(manifest['restoration_content_policy']['recovery_policy_facts_added'], 1)
+        self.assert_hidden(restored)
+
 
 if __name__ == '__main__':
     unittest.main()

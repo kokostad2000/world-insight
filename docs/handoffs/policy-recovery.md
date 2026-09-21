@@ -15,7 +15,7 @@
 - `ops/backup.py`：暂存库原有 SQLite 事务内仅 INSERT 新 kind 的 records/versions 成对事实，同时完成既有正文净化。不实例化会自动 migrate 的 Store，避免 migration 检查点触发递归迁移。此例外已由 root 明确授权。成功切换前仍经过原有 manifest/hash/版本/引用校验。
 - `server/modules/knowledge/policy_period.py`：新增 `RECOVERY_KIND`、`recovery_policy_end(fact, native_history)`；既有 `source_histories` 与 `applicable_source_versions` 合并独立约束分支。未要求每次必须读取全库；root 的定向 policy snapshots 只须返回相关 source/recovery_source_policy 全历史及依赖上下文。
 - `server/modules/knowledge/rights.py`：复用 source_histories，公开每条 Evidence 的 `content_policy.recovery_constraints[]`。每项含事实 id、source_id/source_version、生效/结束时间、rights、retention_days 与中文解释。恢复许可导致禁止时 reason code 为 `recovery_source_rights`。合法尚未到期时约束仍可展示，解释信息本身不作为禁读理由。
-- `tests/test_core_policy_restore.py`：7 项全新真实 SQLite/归档/领域请求行为测试，全部使用带 fixture 标签的独立临时数据，无上游网络。
+- `tests/test_core_policy_restore.py`：8 项全新真实 SQLite/归档/领域请求行为测试，全部使用带 fixture 标签的独立临时数据，无上游网络。
 - 本交付文档。
 
 新事实字段：source_id、source_version、source_created_at、rights、retention_days、policy_effective_at、policy_end_at、restored_at、policy_hash、reason，以及平台式 id/version/created_at/updated_at。policy_hash 标识原政策；后来得知结束边界时追加独立事实，保留原审计，求值时采用已确认的最早结束边界。缺少政策真实时间时保守保持约束。
@@ -30,7 +30,7 @@
 python3 -m unittest tests.test_core_policy_restore tests.test_core_policy_period tests.test_ops_retention tests.test_core_rights tests.test_lifecycle tests.test_lifecycle_platform tests.test_core_domain tests.test_platform tests.test_sources_policy -q
 ```
 
-实际 **103 项通过，2.698 秒，exit 0**。其中新 7 项覆盖：
+实际 **104 项通过，2.375 秒，exit 0**。其中新 8 项覆盖：
 
 1. 到期前恢复保存 cap，后续重采、PATCH、原始关联派生材料、普通导出不展示过期正文；notes、精确旧版引用保持；实际 lifecycle 清除所有版本正文并通过 integrity。
 2. 采集状态更新和 name-only PATCH 不续期。
@@ -39,6 +39,7 @@ python3 -m unittest tests.test_core_policy_restore tests.test_core_policy_period
 5. 只有 display/export 许可收紧而无期限时，恢复后立即隐藏且解释为恢复许可，不凭空制造截止日期；新重审不使旧材料复活。
 6. 当前来源已放宽时，曾适用于旧材料的历史短期限仍保留；之后新材料允许。
 7. 缺少历史政策真实时间时不能把继承的 created_at 当作该版本的生效时间，保守保留约束。
+8. 外部来源的十次连续采集状态更新不重复创建相同许可区间的政策事实；只保留实际政策变化，避免按 source 版本膨胀。
 
 另完成 Python 编译及 git diff --check。首轮一个测试错误地对仍打开的 staged Store 调用 sanitizer，SQLite 正确拒绝 journal mode 切换；测试已先关闭自己连接再净化，不放宽产品锁定行为。
 

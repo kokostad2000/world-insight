@@ -132,6 +132,10 @@ def _recovery_records(connection, external, restored_at):
         dates = [_time(row.get('updated_at') or (row.get('created_at') if row.get('version', 1) == 1 else None)) for row in ordered]
         reliable = all(dates) and all(left <= right for left, right in zip(dates, dates[1:]))
         for index, row in enumerate(ordered):
+            if index and signature(row) == signature(ordered[index - 1]):
+                # Collection/status writes copy the same licence; one policy
+                # interval suffices regardless of how many source versions exist.
+                continue
             rights = row.get('rights')
             restricted = row.get('retention_days') is not None or not isinstance(rights, dict) or any(
                 rights.get(action) is not True and rights.get(action) not in ('full', 'allowed') for action in ('store', 'display', 'export'))
