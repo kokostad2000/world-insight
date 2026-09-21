@@ -121,7 +121,7 @@ class EvidenceAccessHttpTests(unittest.TestCase):
             {'source_id': 'source-world-bank', 'url': url + '/other'}]
         with patch.object(knowledge, 'build_policy_context', wraps=knowledge.build_policy_context) as build:
             row = self.evidence(url=url, channels=channels)
-            self.assertEqual(build.call_count, 1)
+            self.assertEqual(build.call_count, 2)  # Proposed storage + committed response.
         self.assert_private_absent(row)
         self.assertEqual(self.store.get('evidence', row['id'])['excerpt'], BODY)
         duplicate = self.evidence(url=url)
@@ -135,7 +135,7 @@ class EvidenceAccessHttpTests(unittest.TestCase):
         with patch.object(knowledge, 'build_policy_context', wraps=knowledge.build_policy_context) as build:
             split = self.api('evidence/' + row['id'] + '/split', {'expected_version': corrected['version'],
                 'channels': [channels[1]], 'reason': '[fixture] separate appearance'})
-            self.assertEqual(build.call_count, 1)
+            self.assertEqual(build.call_count, 3)  # Two proposed writes + shared committed response.
         self.assert_private_absent(split)
         self.assertIn(NOTE, split['split']['notes'])
         self.assertEqual(self.store.get('evidence', split['split']['id'])['excerpt'], BODY)
@@ -178,11 +178,14 @@ class EvidenceAccessHttpTests(unittest.TestCase):
         self.assertEqual(self.store.get('evidence', first['id'])['excerpt'], BODY)
 
     def test_collector_receipt_preserves_stored_content_and_links_without_full_scan(self):
-        with patch.object(knowledge, 'build_policy_context', wraps=knowledge.build_policy_context) as build:
+        with patch.object(knowledge, 'build_policy_context', wraps=knowledge.build_policy_context) as build, \
+                patch.object(self.store, 'snapshots', side_effect=AssertionError('Use targeted policy projection')), \
+                patch.object(self.store, 'policy_snapshots', wraps=self.store.policy_snapshots) as projection:
             row = knowledge.ingest(self.store, {'source_id': 'source-world-bank', 'title': '[fixture] collector receipt',
                 'excerpt': BODY, 'translation': TRANSLATION, 'notes': NOTE, 'rights': GRANTED,
                 'source_record_id': 'indicator:USA:2025', 'topic_id': self.topic['id']}, origin='collector')
-            self.assertEqual(build.call_count, 0)
+            self.assertEqual(build.call_count, 1)  # Storage policy; receipt needs no extra context.
+            self.assertEqual(projection.call_count, 1)
         self.assert_private_absent(row)
         self.assertEqual(row['notes'], NOTE)
         self.assertEqual(row['source_record_id'], 'indicator:USA:2025')

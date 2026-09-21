@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 import re
+import uuid
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from server.platform.errors import ApiError
 from server.platform.time_utils import in_range
@@ -93,7 +94,7 @@ def _channels(values):
     return result
 
 
-def _prepare_evidence(store, data, old=None):
+def _prepare_evidence(store, data, old=None, *, check_storage=True):
     defaults = {"source_id": "manual", "url": None, "source_record_id": None, "title": "", "excerpt": "", "language": "unknown", "publisher": None, "author": None, "material_type": "article", "published_at": None, "source_updated_at": None, "collected_at": store.now(), "discovered_at": store.now(), "status": "unverified", "origin_evidence_id": None, "channels": [], "rights": _rights(None), "topic_id": None, "topic_ids": [], "notes": "", "translation": "", "change_reason": "初次登记", "is_fixture": False}
     item = {**defaults, **(old or {}), **data}
     if old and old.get("content_expired"):
@@ -108,7 +109,9 @@ def _prepare_evidence(store, data, old=None):
     item["url"] = canonical_url(item["url"])
     item["rights"] = _rights(item["rights"])
     if (item["excerpt"] or item["translation"]) and not _excerpt_allowed(item["rights"], "store"):
-        fail("来源授权未允许保存摘录或译文；请仅登记链接或先核对授权", "rights_restricted")
+        if data.get("excerpt") or data.get("translation"):
+            fail("来源授权未允许保存摘录或译文；请仅登记链接或先核对授权", "rights_restricted")
+        item.update({"excerpt": "", "translation": ""})
     for key in ("published_at", "source_updated_at", "collected_at", "discovered_at", "provider_seen_at"):
         item.setdefault(key, None)
         item[key] = temporal(item[key], key)
@@ -128,6 +131,22 @@ def _prepare_evidence(store, data, old=None):
             seen.add(origin["id"])
             origin = store.get("evidence", origin["origin_evidence_id"]) if origin.get("origin_evidence_id") else None
     item["channels"] = _channels(item["channels"] or [_channel(item)])
+    if check_storage and (item["excerpt"] or item["translation"]):
+        # Evaluate the proposed version before any third-party text is written.
+        # Include the immutable old timeline and origins; a new collection time,
+        # a removed channel or a recovery cannot renew an old material's licence.
+        stamp = store.now()
+        candidate = {**item, "id": old["id"] if old else "pending-" + uuid.uuid4().hex,
+                     "version": old["version"] + 1 if old else 1,
+                     "created_at": old.get("created_at") if old else stamp, "updated_at": stamp}
+        if not old:
+            candidate["first_collected_at"] = item.get("first_collected_at") or stamp
+        ids = ([old["id"]] if old else []) + ([item["origin_evidence_id"]] if item.get("origin_evidence_id") else [])
+        snapshots = store.policy_snapshots(ids)
+        snapshots.append({"kind": "evidence", "record": candidate})
+        context = build_policy_context(snapshots, now=stamp)
+        if not effective_policy(candidate, context, "store")["content_allowed"]:
+            item.update({"excerpt": "", "translation": ""})
     # Fingerprints only cover permitted nonempty stored excerpts. Titles never establish identity.
     item["content_fingerprint"] = hashlib.sha256(item["excerpt"].encode()).hexdigest() if item["excerpt"] else None
     return {k: v for k, v in item.items() if k in EVIDENCE_FIELDS}
@@ -245,7 +264,9 @@ def ingest(store, data, *, origin="manual"):
         fail("未知材料登记方式")
     with store.transaction():
         _ensure_alias_index(store)
-        item = _prepare_evidence(store, clean)
+        # Normalize exact identity before applying storage restrictions. The raw
+        # content/fingerprint is only transient here and is never persisted.
+        item = _prepare_evidence(store, clean, check_storage=False)
         old = _dedup(store, item)
         if old:
             if old.get("deleted"):
@@ -277,6 +298,9 @@ def ingest(store, data, *, origin="manual"):
             # Validate the merged rights/content combination; acquisition never bypasses storage rights.
             merged = _prepare_evidence(store, patch, old)
             patch.update({key: merged[key] for key in patch if key in EVIDENCE_FIELDS})
+            # A metadata-only input may still require dropping an old body after
+            # source narrowing. Do not re-copy content from the pre-policy row.
+            patch.update({key: merged[key] for key in ("excerpt", "translation", "content_fingerprint", "channels")})
             if all(old.get(k) == v for k, v in patch.items()):
                 _bind_aliases(store, old)
                 return {**_ingest_response(store, old, origin), "deduplicated": True}
@@ -287,6 +311,7 @@ def ingest(store, data, *, origin="manual"):
             if narrowed: _mark_dependents(store, updated, reason)
             store.publish("evidence.updated", old["id"], _event_payload(updated, reason, dependency_review=narrowed))
             return {**_ingest_response(store, updated, origin), "deduplicated": True}
+        item = _prepare_evidence(store, item)
         item.update({"ingest_origin": origin, "first_collected_at": store.now(), "manually_touched": origin == "manual"})
         created = store.create("evidence", item)
         _bind_aliases(store, created)
@@ -535,11 +560,16 @@ def split(store, evidence_id, body):
         selected = [existing[k] for k in existing if k in selected_keys]
         remaining = [v for k, v in existing.items() if k not in selected_keys]
         base = {k: copy.deepcopy(v) for k, v in old.items() if k in EVIDENCE_FIELDS}
+        base.update({"first_collected_at": old.get("first_collected_at", old["created_at"]),
+                     "content_expired": bool(old.get("content_expired"))})
         base.update({"channels": selected, "url": selected[0].get("url"), "source_id": selected[0].get("source_id"), "source_record_id": selected[0].get("source_record_id"), "change_reason": reason, "status": "unverified"})
         new = store.create("evidence", {**_prepare_evidence(store, base), "split_from": old["id"], "split_reason": reason,
                                         "ingest_origin": "manual", "first_collected_at": old.get("first_collected_at", old["created_at"]), "manually_touched": True,
                                         "content_expired": bool(old.get("content_expired"))})
-        revised = store.update("evidence", old["id"], {"channels": remaining, "url": remaining[0].get("url"), "source_id": remaining[0].get("source_id"), "source_record_id": remaining[0].get("source_record_id"), "change_reason": reason, "manually_touched": True, "split_children": old.get("split_children", []) + [new["id"]]}, version)
+        remaining_patch = {"channels": remaining, "url": remaining[0].get("url"), "source_id": remaining[0].get("source_id"),
+                           "source_record_id": remaining[0].get("source_record_id"), "change_reason": reason}
+        revised = store.update("evidence", old["id"], {**_prepare_evidence(store, remaining_patch, old),
+            "manually_touched": True, "split_children": old.get("split_children", []) + [new["id"]]}, version)
         _bind_aliases(store, revised)
         _bind_aliases(store, new)
         _mark_dependents(store, revised, reason)

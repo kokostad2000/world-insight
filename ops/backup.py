@@ -181,6 +181,7 @@ def sanitize_snapshot(path, policy_source=None, observed_at=None):
     db = sqlite3.connect(str(path))
     try:
         from server.modules.knowledge.policy_period import RECOVERY_KIND, first_saved_at, material_history, material_source_ids, retention_cap, source_histories
+        from server.modules.knowledge.rights import build_policy_context, effective_policy, strip_licensed_content
         # Keep no old content in rollback/WAL/freelist pages after sanitization.
         db.execute("PRAGMA journal_mode=DELETE")
         db.execute("PRAGMA secure_delete=ON")
@@ -228,6 +229,22 @@ def sanitize_snapshot(path, policy_source=None, observed_at=None):
                     limits[source_id] = min(caps[source_id], limits.get(source_id, caps[source_id]))
             if record_id in decisions or any(record.get("content_expired") for record in history):
                 affected.add(record_id)
+        # Backup is a storage operation, independent of ordinary export grants.
+        # Trash/access status alone does not revoke the right to retain a legal
+        # recovery copy. Actual storage scope, unknown policy and expiry still do.
+        all_versions_affected = set(affected)
+        context = build_policy_context(snapshots, sources, settings, observed_at)
+        storage_denied = set()
+        for record_id, history in histories_by_evidence.items():
+            for record in history:
+                access = effective_policy(record, context, 'store')
+                required_scopes = ('full',) if record.get('content_scope') == 'full' else ('excerpt', 'full')
+                policy_failures = [reason for reason in access['reasons'] if reason['code'] not in ('deleted', 'restricted_status', 'origin_restricted')]
+                body_present = any(value.get(field) for value in [record] + [channel for channel in record.get('channels', []) if isinstance(channel, dict)]
+                                   for field in ('excerpt', 'translation', 'content_fingerprint'))
+                if body_present and (access['rights']['store'] not in required_scopes or access['content_expired'] or policy_failures):
+                    storage_denied.add((record_id, record['version']))
+                    affected.add(record_id)
         changed_versions, content_versions = 0, 0
         db.execute("BEGIN IMMEDIATE")
         try:
@@ -237,13 +254,16 @@ def sanitize_snapshot(path, policy_source=None, observed_at=None):
                     (RECOVERY_KIND, record['id'], None, 1, raw, record['created_at'], record['updated_at']))
                 db.execute("INSERT INTO versions(kind,id,version,data) VALUES(?,?,?,?)", (RECOVERY_KIND, record['id'], 1, raw))
             for kind, record_id, version, record in rows:
-                if kind != "evidence" or record_id not in affected:
+                if kind != "evidence" or (record_id not in all_versions_affected and (record_id, version) not in storage_denied):
                     continue
                 original = json.dumps(record, ensure_ascii=False, allow_nan=False)
-                had_content = bool(record.get("excerpt") or record.get("translation") or record.get("content_fingerprint"))
+                had_content = any(row.get(field) for row in [record] + [value for value in record.get('channels', []) if isinstance(value, dict)]
+                                  for field in ('excerpt', 'translation', 'content_fingerprint'))
                 content_versions += int(had_content)
-                record.update({"excerpt": "", "translation": "", "content_fingerprint": None, "backup_content_omitted": True})
-                record["backup_content_omitted_reason"] = "bounded_source_policy" if record_id in source_ids_by_evidence else "retention_expired"
+                record = strip_licensed_content(record)
+                record["backup_content_omitted"] = True
+                record["backup_content_omitted_reason"] = ("bounded_source_policy" if record_id in source_ids_by_evidence else
+                    "retention_expired" if record_id in all_versions_affected else "storage_rights_restricted")
                 if record_id in decisions or record.get("content_expired"):
                     record["content_expired"] = True
                 replacement = json.dumps(record, ensure_ascii=False, allow_nan=False)
@@ -257,7 +277,7 @@ def sanitize_snapshot(path, policy_source=None, observed_at=None):
             raise
         if affected:
             db.execute("VACUUM")
-        return {"policy_version": 2, "mode": "bounded-source-content-omitted", "evaluated_at": observed_at or now(), "omitted_evidence_ids": sorted(affected), "omitted_evidence_count": len(affected), "changed_version_count": changed_versions, "versions_with_content_removed": content_versions, "bounded_sources": [{"source_id": source_id, "retention_days": days} for source_id, days in sorted(limits.items())], "recovery_policy_facts_added": len(recovered), "recovery_policy_ids": sorted(row['id'] for kind, _, _, row in rows if kind == RECOVERY_KIND), "candidate_policy_status": candidate_status, "candidate_actions": [{"id": key, "action": item.get("action"), "reason": item.get("reason")} for key, item in sorted(decisions.items())], "preserved": ["metadata", "user_notes", "version_ids", "citations", "existing_record_counts"], "omitted_fields": ["excerpt", "translation", "content_fingerprint"], "legacy_policy": "missing_or_null_retention_days_does_not_invent_a_limit; missing_source_is_rejected_by_integrity", "notice": "有来源保存期限的材料仅备份元数据与用户注释；全部历史摘录、译文和内容指纹均省略，不能从此包恢复正文。恢复时的较严来源约束以独立政策事实保留，不覆盖来源配置；人工重新核对仅影响新材料，旧材料期限不重置。默认无期限来源的合法内容保持完整。"}
+        return {"policy_version": 3, "mode": "licensed-content-omitted", "evaluated_at": observed_at or now(), "omitted_evidence_ids": sorted(affected), "omitted_evidence_count": len(affected), "changed_version_count": changed_versions, "versions_with_content_removed": content_versions, "bounded_sources": [{"source_id": source_id, "retention_days": days} for source_id, days in sorted(limits.items())], "storage_restricted_evidence_ids": sorted({record_id for record_id, _ in storage_denied}), "storage_restricted_version_count": len(storage_denied), "recovery_policy_facts_added": len(recovered), "recovery_policy_ids": sorted(row['id'] for kind, _, _, row in rows if kind == RECOVERY_KIND), "candidate_policy_status": candidate_status, "candidate_actions": [{"id": key, "action": item.get("action"), "reason": item.get("reason")} for key, item in sorted(decisions.items())], "preserved": ["metadata", "user_notes", "version_ids", "citations", "existing_record_counts"], "omitted_fields": ["excerpt", "translation", "content_fingerprint"], "legacy_policy": "missing_or_null_retention_days_does_not_invent_a_limit; missing_source_is_rejected_by_integrity", "notice": "保存许可不足、有来源保存期限或已到期的正文不纳入恢复包；相关历史及渠道的摘录、译文、内容指纹省略，标题、人工注释和引用保留。恢复时较严来源约束以独立政策事实保留，不覆盖来源配置；人工重新核对仅影响新材料。无期限且允许保存的合法正文保持完整，export限制不等于本地备份保存限制。"}
     except (sqlite3.DatabaseError, ValueError, TypeError):
         raise OpsError("保留策略快照净化失败，未将快照标为有效备份")
     finally:

@@ -25,8 +25,9 @@ class BackupRetentionTests(unittest.TestCase):
         self.store = Store(self.config["db_path"])
         runtime.atomic_json(self.config["data_dir"] / "instance.json", {"instance_id": str(uuid.uuid4()), "format": 1})
         (self.config["data_dir"] / "attachments").mkdir(exist_ok=True)
-        self.store.create("source", {"name": "[fixture] limited content provider", "retention_days": 30}, record_id="fixture-limited")
-        self.store.create("source", {"name": "[fixture] no registered term", "retention_days": None}, record_id="fixture-unlimited")
+        fixture_rights = {"fetch": False, "store": True, "display": True, "export": True, "ai": False}
+        self.store.create("source", {"name": "[fixture] limited content provider", "retention_days": 30, "rights": fixture_rights}, record_id="fixture-limited")
+        self.store.create("source", {"name": "[fixture] no registered term", "retention_days": None, "rights": fixture_rights}, record_id="fixture-unlimited")
         self.topic = research.handle(self.store, "POST", ["topics"], {"question": "[fixture] content rights retention"}, {})
 
     def tearDown(self):
