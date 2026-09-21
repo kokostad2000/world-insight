@@ -10,6 +10,7 @@ import uuid
 from pathlib import Path
 
 from server.platform.errors import ApiError
+from .policy_period import first_saved_at, first_collected_at, material_history, material_source_ids, retention_cap, source_histories
 
 KINDS = {'topic', 'evidence', 'claim', 'event', 'observation', 'judgment', 'scenario', 'impact_path', 'review', 'brief'}
 ALIASES = {'topics': 'topic', 'claims': 'claim', 'events': 'event', 'metrics': 'observation', 'judgments': 'judgment', 'scenarios': 'scenario', 'impact-paths': 'impact_path', 'reviews': 'review', 'briefs': 'brief'}
@@ -96,7 +97,8 @@ def evaluate_retention(snapshots, sources, settings=None, now=None):
     """Pure policy evaluator used by maintenance and recovery snapshot sanitization."""
     policy = {**DEFAULTS, **(settings or {})}
     instant, latest = _time(now), _latest(snapshots)
-    source_caps = _source_caps(snapshots, sources)
+    _source_caps(snapshots, sources)  # Validate all registered nonnull policies first.
+    policies_by_source = source_histories(snapshots, sources)
     histories, referenced = {}, set()
     for entry in snapshots:
         kind, row = entry['kind'], entry['record']
@@ -120,9 +122,13 @@ def evaluate_retention(snapshots, sources, settings=None, now=None):
             protected.append({'id': evidence_id, 'reason': '首次采集时间未知，不能推断到期'})
             continue
         first = min(timestamps)
-        caps = [source_caps[source_id] for row in versions for source_id in _source_ids(row) if source_id in source_caps]
+        provenance = material_history(evidence_id, histories)
+        saved_at = first_saved_at(provenance)
+        caps = [retention_cap(policies_by_source[source_id], saved_at)
+                for source_id in material_source_ids(provenance) if source_id in policies_by_source]
+        caps = [cap for cap in caps if cap is not None]
         cap = min(caps) if caps else None
-        source_expiry = first + dt.timedelta(days=cap) if cap is not None else None
+        source_expiry = first_collected_at(provenance) + dt.timedelta(days=cap) if cap is not None else None
         reason = None
         if any(row.get('ingest_origin') != 'collector' for row in versions):
             reason = '人工登记或历史采集来源未知'
@@ -303,10 +309,9 @@ def _valid_plan(store, plan_id):
 
 
 def _export(snapshots, targets):
+    from .rights import build_policy_context, present_evidence
     latest = _latest(snapshots)
-    source_caps = _source_caps(snapshots, [])
-    policy = latest.get(('retention_settings', 'default'), DEFAULTS)
-    expired_ids = {row['id'] for row in evaluate_retention(snapshots, [row for (kind, _), row in latest.items() if kind == 'source'], policy)['actions']}
+    context = build_policy_context(snapshots)
     included = {(row['kind'], row['id']) for row in targets}
     # Include incoming authored dependencies, then their full outgoing history graph.
     for entry in snapshots:
@@ -323,14 +328,9 @@ def _export(snapshots, targets):
         if (kind, row['id']) not in included:
             continue
         if kind == 'evidence':
-            current = latest[(kind, row['id'])]
-            source_ids = {source_id for entry in snapshots if entry['kind'] == 'evidence' and entry['record']['id'] == row['id'] for source_id in _source_ids(entry['record'])}
-            sources = [latest[('source', source_id)] for source_id in source_ids if ('source', source_id) in latest]
-            rights = [row.get('rights', {}), current.get('rights', {})]
-            rights.extend(source.get('rights', {}) for source in sources)
-            permitted = all(right.get('store') in ALLOWED and right.get('export') in ALLOWED for right in rights)
+            row = present_evidence(row, context, action='export')
             # Never create another body copy with a finite source deadline.
-            if not permitted or any(source_id in source_caps for source_id in source_ids) or current.get('status') == 'restricted' or current.get('content_expired') or row['id'] in expired_ids:
+            if not row['content_policy']['content_allowed'] or row['content_policy']['retention_days'] is not None:
                 for field in CONTENT:
                     row[field] = None if field == 'content_fingerprint' else ''
                 row['export_content_omitted'] = True

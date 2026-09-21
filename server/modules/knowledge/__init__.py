@@ -8,6 +8,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from server.platform.errors import ApiError
 from server.platform.time_utils import in_range
 from .validation import choice, expected, fail, fields, page, references, strings, temporal, text, topic
+from .rights import build_policy_context, effective_policy, present_evidence
 
 COLLECTIONS = {"evidence": "evidence", "claims": "claim", "events": "event", "metrics": "observation"}
 EVIDENCE_FIELDS = {"source_id", "url", "source_record_id", "title", "excerpt", "language", "publisher", "author", "material_type", "published_at", "source_updated_at", "collected_at", "discovered_at", "status", "origin_evidence_id", "channels", "content_fingerprint", "rights", "topic_id", "topic_ids", "notes", "translation", "change_reason", "is_fixture", "provider_seen_at"}
@@ -95,6 +96,9 @@ def _channels(values):
 def _prepare_evidence(store, data, old=None):
     defaults = {"source_id": "manual", "url": None, "source_record_id": None, "title": "", "excerpt": "", "language": "unknown", "publisher": None, "author": None, "material_type": "article", "published_at": None, "source_updated_at": None, "collected_at": store.now(), "discovered_at": store.now(), "status": "unverified", "origin_evidence_id": None, "channels": [], "rights": _rights(None), "topic_id": None, "topic_ids": [], "notes": "", "translation": "", "change_reason": "初次登记", "is_fixture": False}
     item = {**defaults, **(old or {}), **data}
+    if old and old.get("content_expired"):
+        # Corrections and ordinary edits cannot persist expired licensed bodies again.
+        item.update({"excerpt": "", "translation": ""})
     item["title"] = text(item["title"], "title", True)
     text(item["excerpt"], "excerpt")
     item["excerpt"] = item["excerpt"] or ""
@@ -133,18 +137,33 @@ def _event_payload(record, reason=None, **extra):
     return {"topic_id": record.get("topic_id"), "topic_ids": record.get("topic_ids", []), "title": record.get("title") or record.get("statement"), "version": record["version"], "version_id": f'{record["id"]}@{record["version"]}', "evidence_id": record["id"], "evidence_version_ids": record.get("evidence_version_ids", []), "occurred_at": record.get("occurred_at"), "reason": reason, **extra}
 
 
-def _present(record, action="display"):
-    item = copy.deepcopy(record)
-    if item.get("deleted"):
-        item.update({"excerpt": "", "translation": "", "notes": "", "content_restricted": True,
-                     "lifecycle_label": "已移入回收站；保留引用占位，可显式恢复"})
-    if item.get("rights"):
-        if not _excerpt_allowed(item["rights"], action) or not _excerpt_allowed(item["rights"], "store") or item.get("status") == "restricted":
-            item["excerpt"], item["translation"] = "", ""
-            item["content_restricted"] = True
-    if "content_fingerprint" in item:
-        item["version_id"] = f'{item["id"]}@{item["version"]}'
-    return item
+def policy_context(store):
+    """Fresh full-history policy; caller holds the request's Store transaction."""
+    return build_policy_context(store.snapshots(), now=store.now())
+
+
+def _present(record, action="display", *, store=None, context=None):
+    # Non-Evidence domain records contain authored research, not source bodies.
+    if context is not None or store is not None:
+        return present_evidence(record, context if context is not None else policy_context(store), action)
+    return copy.deepcopy(record)
+
+
+def _ingest_response(store, record, origin):
+    if origin != "collector":
+        return _present(record, store=store)
+    # Collectors need identity/provenance for observation links, not a body echo.
+    # This receipt does not change what was stored or assert that it was licensed.
+    result = copy.deepcopy(record)
+    result.update({"excerpt": "", "translation": "", "content_fingerprint": None,
+                   "version_id": f'{record["id"]}@{record["version"]}',
+                   "response_content_omitted": True, "response_mode": "collector_receipt"})
+    for channel in result.get("channels") or []:
+        if isinstance(channel, dict):
+            for field in ("excerpt", "translation", "content_fingerprint"):
+                if field in channel:
+                    channel[field] = None if field == "content_fingerprint" else ""
+    return result
 
 
 def _alias_keys(data):
@@ -229,7 +248,7 @@ def ingest(store, data, *, origin="manual"):
         old = _dedup(store, item)
         if old:
             if old.get("deleted"):
-                return {**_present(old), "deduplicated": True, "suppressed": "deleted"}
+                return {**_ingest_response(store, old, origin), "deduplicated": True, "suppressed": "deleted"}
             channels = _channels(old.get("channels", []) + item["channels"])
             topics = list(dict.fromkeys(old.get("topic_ids", []) + ([old["topic_id"]] if old.get("topic_id") else []) + item["topic_ids"]))
             patch = {"channels": channels, "topic_ids": topics}
@@ -259,19 +278,19 @@ def ingest(store, data, *, origin="manual"):
             patch.update({key: merged[key] for key in patch if key in EVIDENCE_FIELDS})
             if all(old.get(k) == v for k, v in patch.items()):
                 _bind_aliases(store, old)
-                return {**_present(old), "deduplicated": True}
+                return {**_ingest_response(store, old, origin), "deduplicated": True}
             updated = store.update("evidence", old["id"], patch, old["version"])
             _bind_aliases(store, updated)
             narrowed = _rights_narrowed(old.get("rights", {}), updated.get("rights", {}))
             reason = "来源许可收窄，相关研究需重审" if narrowed else patch.get("change_reason", "新增出现渠道或议题关联")
             if narrowed: _mark_dependents(store, updated, reason)
             store.publish("evidence.updated", old["id"], _event_payload(updated, reason, dependency_review=narrowed))
-            return {**_present(updated), "deduplicated": True}
+            return {**_ingest_response(store, updated, origin), "deduplicated": True}
         item.update({"ingest_origin": origin, "first_collected_at": store.now(), "manually_touched": origin == "manual"})
         created = store.create("evidence", item)
         _bind_aliases(store, created)
         store.publish("evidence.created", created["id"], _event_payload(created))
-        return _present(created)
+        return _ingest_response(store, created, origin)
 
 
 def _prepare_claim(store, data, old=None):
@@ -357,6 +376,68 @@ def upsert_observation(store, data):
         store.publish("observation.created", record["id"], _event_payload(record))
         return record
 
+def on_event(store, event):
+    """Consume source policy narrowing idempotently through M3-owned records.
+
+    Root registers this consumer before research/activity in the durable outbox.
+    Current grants are calculated at read time; this event records availability
+    review obligations without replacing the Evidence's declared licence.
+    """
+    if event.get("type") != "source.policy_changed":
+        return
+    payload = event.get("payload", {})
+    source_id = payload.get("source_id") or event.get("aggregate_id")
+    reason = payload.get("reason") or "来源授权或正文保留期限收紧，相关研究需重新核对"
+    with store.transaction():
+        snapshots = store.snapshots()
+        context = build_policy_context(snapshots, now=store.now())
+        latest, evidence_refs, claim_refs, event_refs, event_claims = {}, {}, {}, {}, {}
+        for entry in snapshots:
+            kind, row = entry["kind"], entry["record"]
+            key = (kind, row["id"])
+            if key not in latest or latest[key]["version"] < row["version"]:
+                latest[key] = row
+            if kind == "evidence":
+                evidence_refs.setdefault(row["id"], []).append(f'{row["id"]}@{row["version"]}')
+            elif kind in {"claim", "event"}:
+                refs = claim_refs if kind == "claim" else event_refs
+                refs.setdefault(row["id"], set()).update(ref.rsplit("@", 1)[0] for ref in row.get("evidence_version_ids", []))
+                if kind == "event":
+                    event_claims.setdefault(row["id"], set()).update(row.get("claim_ids", []))
+        affected = set()
+        for (kind, record_id), row in latest.items():
+            if kind != "evidence":
+                continue
+            policy = effective_policy(row, context)
+            versions = policy["source_policy_versions"].get(source_id, [])
+            version = payload.get("source_version") or payload.get("version")
+            if source_id in policy["source_ids"] and (version is None or version in versions or 0 in versions):
+                affected.add(record_id)
+        affected_claims = {record_id for record_id, refs in claim_refs.items() if affected.intersection(refs)}
+        affected_events = {record_id for record_id, refs in event_refs.items()
+                           if affected.intersection(refs) or affected_claims.intersection(event_claims.get(record_id, set()))}
+        for evidence_id in sorted(affected):
+            row = latest[("evidence", evidence_id)]
+            if event["id"] in row.get("source_policy_event_ids", []):
+                continue
+            revised = store.update("evidence", evidence_id, {"needs_review": True, "review_reason": reason,
+                "source_policy_event_ids": row.get("source_policy_event_ids", []) + [event["id"]],
+                "source_policy_changed_at": event.get("created_at") or store.now()}, row["version"])
+            store.publish("evidence.updated", evidence_id, _event_payload(revised, reason,
+                dependency_review=True, old_version_ids=evidence_refs[evidence_id], source_event_id=event["id"],
+                policy_source_id=source_id), event_id=f'knowledge-source-policy:{event["id"]}:{evidence_id}')
+        for kind, identifiers, status_field in (("claim", affected_claims, "dispute_status"), ("event", affected_events, "verification_status")):
+            for record_id in sorted(identifiers):
+                row = latest[(kind, record_id)]
+                if event["id"] in row.get("review_event_ids", []):
+                    continue
+                revised = store.update(kind, record_id, {status_field: "needs_review", "review_reason": reason,
+                    "review_event_ids": row.get("review_event_ids", []) + [event["id"]]}, row["version"])
+                store.publish(f"{kind}.updated", record_id, _event_payload(revised, reason,
+                    dependency_review=True, source_event_id=event["id"]),
+                    event_id=f'knowledge-source-policy:{event["id"]}:{kind}:{record_id}')
+
+
 def _mark_dependents(store, evidence, reason):
     refs = {f'{evidence["id"]}@{v["version"]}' for v in store.history("evidence", evidence["id"])}
     for kind, status_field in (("claim", "dispute_status"), ("event", "verification_status")):
@@ -389,7 +470,7 @@ def lifecycle_change(store, kind, record_id, expected_version, deleted, reason):
                     store.publish("event.updated", event["id"], _event_payload(revised, reason))
         store.publish("record.deleted" if deleted else "record.restored", record_id,
                       {**_event_payload(changed, reason), "object_kind": kind, "evidence_id": record_id if kind == "evidence" else None})
-        return _present(changed)
+        return _present(changed, store=store if kind == "evidence" else None)
 
 
 def expire_content(store, evidence_id, expected_version, reason, operation_id):
@@ -397,12 +478,12 @@ def expire_content(store, evidence_id, expected_version, reason, operation_id):
     with store.transaction():
         old = store.get("evidence", evidence_id)
         if operation_id in old.get("redaction_operation_ids", []):
-            return _present(old)
+            return _present(old, store=store)
         changed = store.redact_content("evidence", evidence_id, expected_version, reason, operation_id)
         _mark_dependents(store, changed, reason)
         store.publish("evidence.updated", evidence_id,
                       _event_payload(changed, reason, dependency_review=True), event_id="content-expired:"+operation_id)
-        return _present(changed)
+        return _present(changed, store=store)
 
 
 def correct(store, evidence_id, body):
@@ -432,7 +513,7 @@ def correct(store, evidence_id, body):
         if dependency_change:
             _mark_dependents(store, updated, reason)
         store.publish("evidence.corrected" if substantive else "evidence.updated", evidence_id, _event_payload(updated, reason, old_version_ids=old_refs, substantive=substantive, dependency_review=dependency_change))
-        return _present(updated)
+        return _present(updated, store=store)
 
 
 def split(store, evidence_id, body):
@@ -455,14 +536,16 @@ def split(store, evidence_id, body):
         base = {k: copy.deepcopy(v) for k, v in old.items() if k in EVIDENCE_FIELDS}
         base.update({"channels": selected, "url": selected[0].get("url"), "source_id": selected[0].get("source_id"), "source_record_id": selected[0].get("source_record_id"), "change_reason": reason, "status": "unverified"})
         new = store.create("evidence", {**_prepare_evidence(store, base), "split_from": old["id"], "split_reason": reason,
-                                        "ingest_origin": "manual", "first_collected_at": old.get("first_collected_at", old["created_at"]), "manually_touched": True})
+                                        "ingest_origin": "manual", "first_collected_at": old.get("first_collected_at", old["created_at"]), "manually_touched": True,
+                                        "content_expired": bool(old.get("content_expired"))})
         revised = store.update("evidence", old["id"], {"channels": remaining, "url": remaining[0].get("url"), "source_id": remaining[0].get("source_id"), "source_record_id": remaining[0].get("source_record_id"), "change_reason": reason, "manually_touched": True, "split_children": old.get("split_children", []) + [new["id"]]}, version)
         _bind_aliases(store, revised)
         _bind_aliases(store, new)
         _mark_dependents(store, revised, reason)
         store.publish("evidence.corrected", old["id"], _event_payload(revised, reason, old_version_ids=[f'{old["id"]}@{v["version"]}' for v in store.history("evidence", old["id"])], substantive=True, split_evidence_id=new["id"]))
         store.publish("evidence.created", new["id"], _event_payload(new, reason))
-        return {"original": _present(revised), "split": _present(new)}
+        context = policy_context(store)
+        return {"original": _present(revised, context=context), "split": _present(new, context=context)}
 
 
 def source_counts(records, store=None):
@@ -503,17 +586,18 @@ def _relations(store, evidence_id):
 
 def _list(store, kind, query):
     limit, offset = page(query)
+    context = policy_context(store) if kind == "evidence" else None
     simple = not any(query.get(key) for key in ("status", "material_type", "verification_status", "since", "until", "country_code", "similar_to"))
+    # Searching an undisplayable body must not reveal its existence via matches.
+    if kind == "evidence" and query.get("search"):
+        simple = False
     if simple:
         result = store.list(kind, topic_id=query.get("topic_id"), limit=limit, offset=offset, search=query.get("search"))
-        result["items"] = [_present(row) for row in result["items"]]
+        result["items"] = [_present(row, context=context) for row in result["items"]]
         if kind == "evidence":
             result["source_counts"] = source_counts(result["items"], store)
         return result
     rows = store.all(kind, topic_id=query.get("topic_id"))
-    if query.get("search"):
-        needle = query["search"].lower()
-        rows = [r for r in rows if needle in json.dumps(r, ensure_ascii=False).lower()]
     for key in ("status", "material_type", "verification_status", "country_code"):
         if query.get(key):
             rows = [r for r in rows if (r.get("location", {}).get(key) if key == "country_code" and kind == "event" else r.get(key)) == query[key]]
@@ -526,7 +610,14 @@ def _list(store, kind, query):
         original = store.get("evidence", query["similar_to"])
         from difflib import SequenceMatcher
         rows = [{**r, "association_status": "candidate_only"} for r in rows if r["id"] != original["id"] and SequenceMatcher(None, r.get("title", ""), original["title"]).ratio() >= .65]
-    result = {"items": [_present(r) for r in rows[offset:offset + limit]], "total": len(rows), "offset": offset, "limit": limit, "data_status": "fresh", "empty_reason": None if rows else "no_matches"}
+    if query.get("search"):
+        needle = query["search"].lower()
+        rows = [_present(row, context=context) for row in rows]
+        rows = [row for row in rows if needle in json.dumps({key: value for key, value in row.items() if key != "content_policy"}, ensure_ascii=False).lower()]
+        values = rows[offset:offset + limit]
+    else:
+        values = [_present(row, context=context) for row in rows[offset:offset + limit]]
+    result = {"items": values, "total": len(rows), "offset": offset, "limit": limit, "data_status": "fresh", "empty_reason": None if rows else "no_matches"}
     if kind == "evidence":
         result["source_counts"] = source_counts(rows, store)
     return result
@@ -535,6 +626,12 @@ def _list(store, kind, query):
 def handle(store, method, segments, body, query):
     if not segments or segments[0] not in COLLECTIONS:
         return None
+    # Snapshot, selected rows and serialization all observe one coherent policy.
+    with store.transaction():
+        return _handle(store, method, segments, body, query)
+
+
+def _handle(store, method, segments, body, query):
     kind = COLLECTIONS[segments[0]]
     if len(segments) == 1:
         if method == "GET":
@@ -551,14 +648,13 @@ def handle(store, method, segments, body, query):
         record_id = segments[1]
         if len(segments) == 3:
             if segments[2] == "history" and method == "GET":
-                latest = store.get(kind, record_id)
-                values = []
-                for v in store.history(kind, record_id):
-                    shown = _present(v)
-                    if kind == "evidence" and (not _excerpt_allowed(latest.get("rights", {}), "display") or latest.get("status") == "restricted" or latest.get("deleted")):
-                        shown.update({"excerpt": "", "translation": "", "content_restricted": True})
-                    values.append(shown)
+                store.get(kind, record_id)
+                context = policy_context(store) if kind == "evidence" else None
+                values = [_present(row, context=context) for row in store.history(kind, record_id)]
                 return {"items": values}
+            if kind == "evidence" and segments[2] == "backlinks" and method == "GET":
+                record = _present(store.get(kind, record_id), store=store)
+                return {"evidence": record, "relations": _relations(store, record_id)}
             if kind == "evidence" and method == "POST":
                 if segments[2] == "corrections":
                     return correct(store, record_id, body)
@@ -566,7 +662,7 @@ def handle(store, method, segments, body, query):
                     return split(store, record_id, body)
         if len(segments) == 2:
             if method == "GET":
-                record = _present(store.get(kind, record_id))
+                record = _present(store.get(kind, record_id), store=store if kind == "evidence" else None)
                 if kind == "evidence":
                     record["relations"] = _relations(store, record_id)
                     record["source_counts"] = source_counts([record], store)
@@ -594,5 +690,5 @@ def handle(store, method, segments, body, query):
                     reason = "来源许可收窄，相关研究需重审" if narrowed else clean.get("change_reason")
                     if narrowed: _mark_dependents(store, updated, reason)
                     store.publish(f"{kind}.updated", record_id, _event_payload(updated, reason, dependency_review=narrowed))
-                    return _present(updated)
+                    return _present(updated, store=store if kind == "evidence" else None)
     raise ApiError(405, "method_not_allowed", "此资源不支持该操作；历史记录不能直接删除")

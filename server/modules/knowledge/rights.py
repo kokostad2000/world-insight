@@ -13,6 +13,7 @@ import copy
 import datetime as dt
 
 from .lifecycle import evaluate_retention
+from .policy_period import applicable_source_versions, first_saved_at
 
 
 ACTIONS = ('fetch', 'store', 'display', 'export', 'ai')
@@ -87,18 +88,7 @@ def build_policy_context(snapshots, sources=None, settings=None, now=None):
     due = {action['id']: action for action in retention['actions']}
     source_policies = {}
     for source_id, history in source_history.items():
-        current_version = max(row.get('version', 0) for row in history)
-        grants = {action: min(_grants(row)[action] for row in history) for action in ACTIONS}
-        limits = {}
-        for action in ACTIONS:
-            # Retain one explainable limiting version, preferring historical ones.
-            limiting = min((row for row in history if _grants(row)[action] == grants[action]), key=lambda row: row.get('version', 0))
-            historical = limiting.get('version', 0) < current_version
-            limits[action] = _reason('historical_source_rights' if historical else 'source_rights',
-                '来源历史版本的较严许可仍适用' if historical else '来源登记许可限制正文访问',
-                source_id=source_id, version=limiting.get('version'), action=action, scope=SCOPES[grants[action]])
-        caps = [row['retention_days'] for row in history if row.get('retention_days') is not None]
-        source_policies[source_id] = {'grants': grants, 'limits': limits, 'retention_days': min(caps) if caps else None}
+        source_policies[source_id] = [{key: copy.deepcopy(row.get(key)) for key in ('id', 'created_at', 'updated_at', 'retention_days')} | {'version': row.get('version') or 0, 'grants': _grants(row)} for row in history]
     evidence_policies = {}
     for evidence_id, history in evidence_history.items():
         current = latest[('evidence', evidence_id)]
@@ -110,6 +100,7 @@ def build_policy_context(snapshots, sources=None, settings=None, now=None):
             'status': current.get('status'), 'deleted': bool(current.get('deleted')),
             'content_expired': any(row.get('content_expired') for row in history),
             'source_ids': source_ids, 'first_collected_at': min(timestamps) if timestamps else None,
+            'first_saved_at': first_saved_at(history),
             'origins': {row['origin_evidence_id'] for row in history if row.get('origin_evidence_id')},
             'due': copy.deepcopy(due.get(evidence_id)),
         }
@@ -184,27 +175,36 @@ def effective_policy(record, context, action='display'):
             reasons.append(_reason('origin_restricted', '原始出处材料当前标记为受限', evidence_id=evidence_id))
     # Include this snapshot's provenance even if a caller supplies stale context.
     source_ids.update(_source_ids(record))
-    caps = []
+    saved_times = [row['first_saved_at'] for _, row in provenance]
+    saved_at = min(saved_times) if saved_times and all(saved_times) else None
+    caps, source_versions = [], {}
     for source_id in sorted(source_ids, key=lambda value: str(value)):
-        source = context['sources'].get(source_id)
-        if source is None:
+        history = context['sources'].get(source_id)
+        if history is None:
             if source_id != 'manual':
                 reasons.append(_reason('missing_source_policy', '来源许可未登记或渠道来源未知，不能推定允许正文', source_id=source_id))
                 grants = {name: 0 for name in ACTIONS}
             continue
-        if source['retention_days'] is not None:
-            caps.append(source['retention_days'])
+        policies = applicable_source_versions(history, saved_at)
+        source_versions[source_id] = sorted({row['version'] for row in policies})
+        caps.extend(row['retention_days'] for row in policies if row['retention_days'] is not None)
+        current_source_version = max(row['version'] or 0 for row in history)
         for name in ACTIONS:
-            grants[name] = min(grants[name], source['grants'][name])
-            if source['grants'][name] < required:
-                limiters[name].append(source['limits'][name])
+            limiting = min(policies, key=lambda row: (row['grants'][name], row['version'] or 0))
+            source_grant = limiting['grants'][name]
+            grants[name] = min(grants[name], source_grant)
+            if source_grant < required:
+                historical = (limiting['version'] or 0) < current_source_version
+                limiters[name].append(_reason('historical_source_rights' if historical else 'source_rights',
+                    '材料保存期间来源历史版本的较严许可仍适用' if historical else '来源登记许可限制正文访问',
+                    source_id=source_id, version=limiting['version'], action=name, scope=SCOPES[source_grant]))
     cap = min(caps) if caps else None
     timestamps = [row['first_collected_at'] for _, row in provenance if row['first_collected_at']]
     first = min(timestamps) if timestamps else None
     source_expires_at = first + dt.timedelta(days=cap) if first and cap is not None else None
     expired = bool(record.get('content_expired') or any(row['content_expired'] for _, row in provenance))
     expiry = source_expires_at
-    if cap is not None and first is None:
+    if cap is not None and (first is None or saved_at is None):
         reasons.append(_reason('unknown_retention_start', '来源有正文期限，但首次保存时间未知，无法确认仍在许可期内'))
     if source_expires_at and source_expires_at <= context['now']:
         expired = True
@@ -229,6 +229,7 @@ def effective_policy(record, context, action='display'):
     return {'rights': {name: SCOPES[rank] for name, rank in grants.items()},
         'content_allowed': allowed, 'content_expired': expired, 'content_expires_at': _iso(expiry),
         'retention_days': cap, 'source_ids': sorted(item for item in source_ids if isinstance(item, str)),
+        'source_policy_versions': source_versions,
         'action': action, 'evaluated_at': context['evaluated_at'], 'reasons': unique}
 
 

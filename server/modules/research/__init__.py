@@ -4,7 +4,8 @@ import json
 from server.platform.errors import ApiError
 from server.platform.time_utils import in_range
 from server.modules.knowledge.validation import choice, expected, fail, fields, page, references, strings, temporal, text, topic
-from server.modules.knowledge import _present as present_evidence, source_counts
+from server.modules.knowledge import policy_context, source_counts
+from server.modules.knowledge.rights import present_evidence
 
 COLLECTIONS = {"topics": "topic", "judgments": "judgment", "scenarios": "scenario", "impact-paths": "impact_path", "reviews": "review"}
 TOPIC_FIELDS = {"question", "regions", "actors", "time_range", "keywords", "exclude_keywords", "rationale", "status", "followed", "reading_baseline", "coverage_gaps", "source_ids", "pinned", "is_fixture"}
@@ -207,23 +208,25 @@ def _all_refs(value):
     return refs
 
 
-def _evidence_view(store, record, action):
-    # Later access restrictions also apply when reading earlier versions.
-    latest = store.get("evidence", record["id"])
-    result = present_evidence(record, action)
-    permission = latest.get("rights", {}).get(action)
-    if permission not in (True, "excerpt", "full", "allowed") or latest.get("rights",{}).get("store") not in (True,"excerpt","full","allowed") or latest.get("status") == "restricted" or latest.get("deleted"):
-        result["excerpt"], result["translation"] = "", ""
-        result["content_restricted"] = True
-    return result
+def _evidence_view(record, action, context):
+    return present_evidence(record, context, action)
 
 
 def bundle(store, topic_id, include_history=False, action="display"):
+    with store.transaction():
+        return _bundle(store, topic_id, include_history, action, policy_context(store))
+
+
+def _bundle(store, topic_id, include_history, action, context):
     result = {"topic": store.get("topic", topic_id)}
     for key, kind in (("evidence", "evidence"), ("claims", "claim"), ("events", "event"), ("judgments", "judgment"), ("scenarios", "scenario"), ("impact_paths", "impact_path"), ("reviews", "review"), ("observations", "observation")):
         result[key] = store.all(kind, topic_id=topic_id)
     countries = set(result["topic"].get("country_codes", []))
     scope = set(result["topic"].get("source_ids", []))
+    # Legacy collector runs linked all countries to a topic. Explicit background
+    # selection governs display, while separately authored citations stay fixed.
+    result["observations"] = [row for row in result["observations"]
+        if (not countries or row.get("country_code") in countries) and (not scope or row.get("source_id") in scope)]
     observation_ids = {row["id"] for row in result["observations"]}
     for observation in store.all("observation"):
         if observation.get("country_code") in countries and (not scope or observation.get("source_id") in scope) and observation["id"] not in observation_ids:
@@ -244,13 +247,14 @@ def bundle(store, topic_id, include_history=False, action="display"):
         for key, kind in (("evidence", "evidence"), ("claims", "claim"), ("events", "event"), ("judgments", "judgment"), ("scenarios", "scenario"), ("impact_paths", "impact_path"), ("reviews", "review"), ("observations", "observation")):
             history[key] = {r["id"]: store.history(kind, r["id"]) for r in result[key]}
         refs.update(_all_refs(history))
-        history["evidence"] = {eid: [_evidence_view(store, v, action) for v in versions] for eid, versions in history["evidence"].items()}
+        history["evidence"] = {eid: [_evidence_view(v, action, context) for v in versions] for eid, versions in history["evidence"].items()}
         result["histories"] = history
-    result["citations"] = [_evidence_view(store, store.version(ref), action) for ref in sorted(refs)]
-    result["evidence"] = [_evidence_view(store, row, action) for row in result["evidence"]]
+    result["citations"] = [_evidence_view(store.version(ref), action, context) for ref in sorted(refs)]
+    result["evidence"] = [_evidence_view(row, action, context) for row in result["evidence"]]
     result["source_counts"] = source_counts(result["evidence"], store)
     source_ids = {r.get("source_id") for r in result["evidence"] + result["observations"]}
-    public_source_fields = {"id", "version", "name", "adapter", "domain", "languages", "regions", "license_url", "checked_at", "rights", "status", "last_success", "data_as_of"}
+    source_ids.update(source_id for row in result["evidence"] + result["citations"] for source_id in row["content_policy"]["source_ids"])
+    public_source_fields = {"id", "version", "name", "adapter", "domain", "languages", "regions", "license_url", "checked_at", "rights", "retention_days", "status", "last_success", "data_as_of"}
     result["sources"] = [{k: v for k, v in row.items() if k in public_source_fields} for row in store.all("source") if row["id"] in source_ids]
     result["review_summary"] = _review_summary(result["reviews"])
     result["unknowns"] = {"coverage_gaps": result["topic"].get("coverage_gaps", []), "missing_evidence": [{"judgment_id": row["id"], "description": row.get("missing_evidence"), "support_label": row.get("support_label")} for row in result["judgments"] if row.get("missing_evidence") or row.get("evidence_support") == "assumption_only"], "event_time_unknown": [row["id"] for row in result["events"] if row.get("time_precision") == "unknown"], "event_location_unknown": [row["id"] for row in result["events"] if row.get("location", {}).get("precision") == "unknown"]}
@@ -282,6 +286,10 @@ def export(store, query):
     lines.extend(["## 引用的材料版本", ""])
     for row in data["citations"]:
         lines.extend([f'### {row.get("title", "未知标题")}', "", f'版本：{row["id"]}@{row["version"]}', f'原始链接：{row.get("url") or "未登记"}', f'发布者：{row.get("publisher") or "未知"}', f'发布时间：{row.get("published_at") or "未知"}', f'采集时间：{row.get("collected_at") or "未知"}', f'摘录：{row.get("excerpt") or ("授权限制，不导出内容" if row.get("content_restricted") else "未登记")}', ""])
+        if row.get("content_expires_at"):
+            lines.extend([f'正文保留截止：{row["content_expires_at"]}', ""])
+        if row.get("content_restricted"):
+            lines.extend(['内容限制原因：' + '；'.join(dict.fromkeys(reason['reason'] for reason in row['content_policy']['reasons'])), ""])
     lines.extend(["## 未知项和完整版本记录", "", "```json", json.dumps({"unknowns": data["unknowns"], "histories": data["histories"], "sources": data["sources"], "boundaries": data["boundaries"]}, ensure_ascii=False, indent=2), "```", ""])
     return {"filename": f"world-insight-{topic_id}.md", "format": "markdown", "content": "\n".join(lines), "generated_at": data["generated_at"]}
 
