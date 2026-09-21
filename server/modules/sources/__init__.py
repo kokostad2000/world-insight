@@ -336,6 +336,7 @@ def coverage(store, topic_id=None):
         result_counts = [job.get('last_result_count') for job in jobs]
         sources.append({'id': source['id'], 'name': source['name'], 'adapter': source['adapter'],
             'status': status, 'data_status': 'fresh' if fresh else ('stale' if last_success else 'unavailable'),
+            'fresh_scope_count': 0 if country_scope_empty else len(fresh_jobs),
             'last_attempt': source.get('last_attempt'), 'last_success': last_success,
             'data_as_of': max((job.get('data_as_of') for job in jobs if job.get('data_as_of')), default=None),
             'next_check': source.get('next_check'),
@@ -345,12 +346,12 @@ def coverage(store, topic_id=None):
             'last_result_count': sum(result_counts) if len(jobs) == len(targets) and all(x is not None for x in result_counts) else None,
             'check_complete': fresh and not gaps and not pending})
     complete = sum(item['check_complete'] for item in sources)
-    status = 'not_configured' if not sources else ('complete' if complete == len(sources) else ('partial' if any(item['last_success'] for item in sources) else 'unavailable'))
+    status = 'not_configured' if not sources else ('complete' if complete == len(sources) else ('partial' if any(item['fresh_scope_count'] for item in sources) else 'unavailable'))
     empty = 'no_matches' if status == 'complete' and all(item['last_result_count'] == 0 for item in sources) else None
     return {'coverage_status': status, 'sources': sources, 'empty_reason': empty,
         'explanation': {'complete': '当前配置来源检查完成，不表示世界信息完整。',
                         'partial': '部分来源检查失败、陈旧或存在采集缺口，无法确认全范围没有变化。',
-                        'unavailable': '来源尚未成功检查，无法判断是否有新变化。',
+                        'unavailable': '本轮来源检查未完成或不可用，无法判断新增，已有历史缓存仍可阅读。',
                         'not_configured': '没有启用可采集来源；可继续人工研究。'}[status]}
 
 
