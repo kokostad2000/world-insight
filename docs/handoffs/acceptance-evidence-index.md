@@ -22,7 +22,7 @@
 | C | [新目录启动与空目录恢复](../evidence/mac-clean-restore.json)：实际中文/空格路径，本地 clone，初始化/重复启动/停止/恢复；`--no-browser --no-scheduler`，因此不证明自动打开浏览器或真实调度恢复。 |
 | N | [正常更新](../evidence/mac-normal-update.json)：实际 dd527ab→ad5e32f、schema 1→1，418 个版本、完整性 OK，使用本地 Git fetch，`network_used:false`。审查时未提交；不证明 GitHub 断网分支或新的第三方依赖升级。 |
 | R | [实际迁移失败](../evidence/mac-migration-failure.json)：目标 6434834 迁移失败，记录 rolled_back，恢复 ad5e32f/schema 1，临时表不存在，旧判断 v4 和固定材料 v2 可读，maintenance 清除。产品退出 1；外围 harness 曾误期待 2，文件已明确此差异，不把 harness 失败隐去。审查时未提交。 |
-| H | [权限策略交接](rights.md)：22 个新增纯策略/SQLite 测试；联合 54 项、1.397 秒、退出 0 是交接记录，尚未在本索引所读证据中见同轮完整原始 stdout。root 2abb081 已接读取路由；该交接的“待接线”是提交时状态。不能据纯 helper 通过推导全部 HTTP/搜索/浏览器不泄漏。 |
+| H | [权限策略交接](rights.md)：22 个新增纯策略/SQLite 测试；联合 54 项、1.397 秒、退出 0 是交接记录，尚未在本索引所读证据中见同轮完整原始 stdout。root 2abb081 仅合入纯 helper，读取/普通导出路由截至审查仍待 core 接线；不能从合并标题推断集成已完成。不能据纯 helper 通过推导全部 HTTP/搜索/浏览器不泄漏。 |
 | Y | [相似材料交接](similarity.md)：4 项自动测试 + 实际 Edge 8873 临时宿主。不同国家日期的两条样本经忽略、恢复提示、关联、移除、历史恢复后仍 2 材料/0 事件，版本 1—4，notes/channels 保留。root 已合模块；正式 app 页面点击追加证据现见 B2。 |
 
 第二轮增量以 B2 已写入文件为准，取代编写期间的现场消息。其正式相似关系操作后材料 v6、仍 2 材料/0 事件/204 判断；正常更新后 v4、回退后 v5 都已实际保存。root 真实议题 JSON 276673 B、SHA256 `f22b2405ffd7084c0112683d12f8ed058403e01da1a64af01e62329d9e8dda8b` 已解析核对。新文件尚未提交属于证据保全待办，不能把 Git 状态误作行为未执行。
@@ -159,7 +159,7 @@
 
 - 已运行测试：`test_core_domain.CoreDomainTests.test_export_filters_rights_and_secrets`（T:25）；`test_ops_lifecycle.OperationsTests.test_running_backup_and_empty_restore_continue_edit`（T:86）；`test_ops_retention.BackupRetentionTests.test_bounded_source_all_versions_omitted_in_archive_not_live_database`（T:96）；`test_ops_retention.BackupRetentionTests.test_actual_due_candidate_legacy_restore_and_refetch_cannot_revive_body`（T:94）；`test_lifecycle.LifecycleTests.test_export_finite_source_omits_body_but_keeps_notes_and_citations`（T:53）。
 - 真实操作：L 标准页面 JSON/Markdown 实际落盘，逐项比对 API；C 真源库 415 版本备份恢复、B 浏览器继续编辑；O 运行中备份与合法附件/阅读状态恢复实测。
-- 尚缺/适用边界：普通研究导出与恢复包策略不同：H 允许未到期且有 export 授权的有限期正文，恢复包提前省略。新 source 级策略已合入但需 HTTP/浏览器回归，不能沿用旧导出证明所有新分支；B2 已补 root 真源 JSON 文件核验；本条剩余问题是最新策略的完整响应矩阵。
+- 尚缺/适用边界：普通研究导出与恢复包策略不同：H 允许未到期且有 export 授权的有限期正文，恢复包提前省略。新 source 级纯策略已合入，实际读取/普通导出接线仍待交付，随后需 HTTP/浏览器回归，不能沿用旧导出证明所有新分支；B2 已补 root 真源 JSON 文件核验；本条剩余问题是最新策略的完整响应矩阵。
 - 能否通过：**主要闭环通过；最新权限矩阵待补后完整认定**。
 
 ### AC-20 航空/船舶未接入不冒充空结果
@@ -293,12 +293,12 @@
 6. **备份/回退最后分支（AC-29/30/33/34）**：备份中断专属进程后旧包仍有效；回退拒绝前保留的新包确可还原新增记录/附件；恢复和回退后的浏览器读旧议题、指定证据版本、判断、阅读状态并保存下一版。R/B2 已证明真实迁移失败、旧数据与浏览器保存 v5，尚需阅读状态/附件页面对照；不要重复无必要的破坏性故障。
 7. **离线与跟踪范围（AC-35）**：不改用户全局网络设置，在独立运行环境限制外网后读本地旧议题；受控 Git 拉取失败保留旧版本。当前 updater 接收本地 ref 而不主动 fetch，测试应覆盖 README 的拉取+更新完整操作边界。只读核查 tracked 文件与必要历史的敏感内容，输出仅是否发现及安全位置，不回显密钥。
 8. **真睡眠/唤醒（AC-36）**：由 root 协调真实 Mac 睡眠，记录系统 sleep/wake 时间、实例/collector 数、预算前后、补采上限、coverage_gaps、事件发生/采集时间。其机制可在一天内工程验收；连续七天稳定性仍另算。
-9. **合并后的性能与国家范围**：现有 [性能原始结果](../evidence/performance-capacity.json) 是 2 万材料/5 千事件/5 并发的暖 SQLite/HTTP：dashboard P95 0.930405 秒、筛选 0.373495 秒，未测首个可用页面内容 P95。权限策略刚加入全历史扫描，需在最终代码真实浏览器/五并发测首可用内容 ≤3 秒，API 筛选 ≤1 秒。Y 交接还报告 topic.country_codes=USA 时 WDI CHN/USA 配置导致背景混入 CHN；root 在 bd8162a/b88a8b6 已修请求/响应国家交集及全局缓存，bundle 也增加过滤，仍需最终正式页面重验，不能用 AC-11 的时间正确掩盖国家范围问题。
+9. **合并后的性能与国家范围**：现有 [性能原始结果](../evidence/performance-capacity.json) 是 2 万材料/5 千事件/5 并发的暖 SQLite/HTTP：dashboard P95 0.930405 秒、筛选 0.373495 秒，未测首个可用页面内容 P95。权限策略刚加入全历史扫描，需在最终代码真实浏览器/五并发测首可用内容 ≤3 秒，API 筛选 ≤1 秒。Y 交接还报告 topic.country_codes=USA 时 WDI CHN/USA 配置导致背景混入 CHN；root 在 bd8162a/b88a8b6 已修请求/响应国家交集及全局缓存；bundle 过滤截至本审查仍待 core 接线，交付后需正式页面重验，不能用 AC-11 的时间正确掩盖国家范围问题。
 
 ## M1—M3 工程与 M4 真实观察分别结账
 
 - **PRD M1**：已有 PRD、页面实现、契约、ADR 与首批来源方案。本次仅索引证据，未重新逐条审计 §11.6 文档字段/线框完备性，不替 root 宣告 M1 全部完成。这里的里程碑不同于代码七模块 M1—M7。
-- **PRD M2**：真实 RSS/WDI、手工元数据登记、全新代码启动、重启保留均有实际证明；GDELT 仍没有有效数据，相似关系主页面已由 B2 完成；国家范围新修复仍需最终页面重验。不能仅因源适配器测试通过把真实接入状态改成功。
+- **PRD M2**：真实 RSS/WDI、手工元数据登记、全新代码启动、重启保留均有实际证明；GDELT 仍没有有效数据，相似关系主页面已由 B2 完成；国家采集范围已修，bundle 过滤仍待接线与最终页面重验。不能仅因源适配器测试通过把真实接入状态改成功。
 - **PRD M3**：要求 AC-01—36 行为通过与 §11.6 文件齐全。目前有多项可确认通过，但 Finder、真实睡眠、备份进程中断、精确页面状态/竞态和最新权限路由等仍缺。它们是工程待办，不是必须等七天才可检查，也不能统一标为 M4 待观察而宣布 M3 完成。
 - **真实来源门槛**：GDELT 2026-09-21 又真实超时；Fed RSS 明确许可、WDI 有有效数据。PRD 允许不可用来源记录原因并采用同类免费源等效验证且更新登记，但已有 Fed 新闻不自动等同 GDELT 的全球多源检索。尚无等效范围验收记录，不能宣布已满足该替代条款。
 - **真实内容门槛**：S 的 10 条官方材料是候选清单，不是 10 条已人工登记和复核。B 有一个官方声明元数据闭环，仍需 10 条不同类型实际复核；50 材料/20 事件说法/10 判断的出处、时间、关联抽查没有完整报告。
