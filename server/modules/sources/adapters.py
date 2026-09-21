@@ -132,7 +132,10 @@ def request_for(source, job):
                 headers[name] = source[key]
         return config['feed_url'], headers
     if adapter == 'world_bank':
-        countries = ';'.join(config.get('countries', ['CHN', 'USA']))
+        selected = job.get('country_codes', [] if job.get('topic_id') else config.get('countries', ['CHN', 'USA']))
+        if not selected:
+            raise FetchError('country_scope_empty', 'WDI 任务没有明确的国家交集，未发送请求。')
+        countries = ';'.join(selected)
         indicators = ';'.join(config.get('indicators', list(INDICATORS)))
         params = {'source': 2, 'format': 'json', 'mrv': 5, 'per_page': 200,
                   'page': checkpoint.get('page', 1)}
@@ -203,23 +206,27 @@ def parse(source, job, response, now):
         if int(metadata.get('pages', 1)) > int(metadata.get('page', 1)):
             result['next_page'] = int(metadata['page']) + 1
         result['data_as_of'] = metadata.get('lastupdated')
+        allowed_countries = set(job.get('country_codes', [] if job.get('topic_id') else source.get('config', {}).get('countries', ['CHN', 'USA'])))
+        allowed_indicators = set(source.get('config', {}).get('indicators', list(INDICATORS)))
         for item in values:
             indicator = item.get('indicator', {}).get('id')
-            if indicator not in INDICATORS:
+            if indicator not in INDICATORS or indicator not in allowed_indicators:
                 continue
             country = item.get('countryiso3code')
             period = item.get('date')
-            if not country or not period:
+            if country not in allowed_countries or not period:
                 continue
             url = f'https://data.worldbank.org/indicator/{indicator}?locations={country}&date={period}'
             external_id = f'{indicator}:{country}:{period}'
-            result['evidence'].append({**base, 'url': url, 'source_record_id': external_id,
+            # WDI is shared background data; explicit topic.country_codes resolves the view.
+            # Never turn a collector task's topic into a permanent/manual research association.
+            result['evidence'].append({**base, 'topic_id': None, 'url': url, 'source_record_id': external_id,
                 'title': f'{INDICATORS[indicator][0]} · {country} · {period}',
                 'excerpt': json.dumps({'value': item.get('value'), 'period': period, 'unit': INDICATORS[indicator][1]}, ensure_ascii=False),
                 'language': 'en', 'publisher': 'World Bank / WDI', 'material_type': 'dataset',
                 'published_at': None, 'source_updated_at': metadata.get('lastupdated')})
             result['observations'].append({'source_id': source['id'], 'source_record_id': external_id,
-                'topic_id': job.get('topic_id'), 'indicator': indicator, 'country_code': country,
+                'topic_id': None, 'indicator': indicator, 'country_code': country,
                 'value': item.get('value'), 'unit': INDICATORS[indicator][1], 'period': period,
                 'frequency': 'annual', 'published_at': None,
                 'source_updated_at': metadata.get('lastupdated'), 'collected_at': now,

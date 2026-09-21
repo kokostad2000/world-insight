@@ -9,7 +9,7 @@
 - `handle(store, method, segments, body, query)`：标准 source GET/POST/PATCH/history；GET `sources/coverage`、`sources/jobs`；POST `sources/<id>/refresh` 接收 `{topic_id?}`，只持久排队，返回 `{status:queued|already_queued,job}`。
 - `seed_sources(store)`：幂等，纯本地；预置 GDELT、Fed RSS、WDI、人工来源和关闭的 AI/付费占位。
 - `coverage(store, topic_id=None)`：`{coverage_status,sources,empty_reason,explanation}`。complete 仅表示配置范围检查完成，空结果与部分/失败分开；有陈旧缓存不称正常无结果；分窗任务未完及历史缺口不称完整。
-- `start_scheduler(store, evidence_sink=None, observation_sink=None, fetcher=None)` → Scheduler；`stop_scheduler(scheduler)`。默认 sink 是 `knowledge.ingest(store,data)` / `knowledge.upsert_observation(store,data)`；线程单一、按数据目录 flock 独占。
+- `start_scheduler(store, evidence_sink=None, observation_sink=None, fetcher=None)` → Scheduler；`stop_scheduler(scheduler)`。默认 sink 是 `knowledge.ingest(store,data,origin='collector')` / `knowledge.upsert_observation(store,data)`；线程单一、按数据目录 flock 独占。
 - `Scheduler.tick(schedule=True)`：测试/诊断用一次有界处理；不从 HTTP 路由直接调用。root 应在服务启动/正常退出调用 start/stop。启动时将未完成 running 任务恢复为 retry；默认不会创建无查询 GDELT 任务。
 - `python3 -m server.modules.sources.probe --sources rss,world_bank`：显式免费连通性检查，各源单次、无自动重试、不写研究数据库。不应放进默认本地配置检查。
 
@@ -43,3 +43,39 @@ OK
 4. 用隔离真实源验收库跑 HTTP/浏览器、真实源入库后重启、维护停止、备份恢复、实际睡眠与更新；本交接未替代这些集成验收。
 
 GDELT 深历史/完整新闻覆盖、Feed 滚动窗口外的完整性、本机真正睡眠恢复、七天观察均未证明。当前自动补采上限 90 天是本版安全预算政策，不是声称上游历史仅 90 天。查询命中 250 条会显式记录缺口；不做未授权全文补采或付费回退。未推送 GitHub。
+
+## 2026-09-21：WDI 国家范围与来源权限事件补充
+
+本批基础已合并 `ad5e32f`；修改 sources 模块、新增 `tests/test_sources_policy.py`，不改 knowledge/research、平台或前端共享文件。
+
+WDI 自动采集行为：
+
+- 对议题任务，将明确的 `topic.country_codes ∩ source.config.countries` 保存为 `collection_job.country_codes`。国家选择进入任务签名；查询范围改变后旧任务取消、旧成功状态失效，分页从新范围起点开始。
+- URL 只请求交集中的国家；响应再次过滤国家与配置指标，即使上游返回额外国家也不自动入库。
+- 议题国家为空或与来源无交集时，不猜测国家、不排队、不消耗预算；显式刷新解释拒绝，coverage 不报已检查无结果。完全没有议题时仍可按来源明确配置进行全局缓存采集。
+- WDI 自动材料和观测保持全局背景缓存（新记录 topic_id=null），不把任务议题变成永久的人工研究关联。议题通过 research.bundle 的明确国家选择读取背景。再次采集不会覆盖已经存在的人工作品 topic_id/topic_ids。
+- M2 不跨域清理过去错误关联；root/core 负责 bundle 在显式国家选择下过滤背景展示，同时保留被研究引用材料的 citations。该读取修复需与本批合入验证。
+
+新增可靠事件 `source.policy_changed`：在来源 PATCH 的同一事务中，先保存来源新版本，再发布；仅 store/display/export 的 true→false 或 retention_days 从 null→有限／变短时触发，改名、同值和权限放宽不触发。
+
+```json
+{
+  "source_id": "source-world-bank",
+  "source_version": 2,
+  "version": 2,
+  "previous_version": 1,
+  "old_rights": {"fetch":true,"store":true,"display":true,"export":true,"ai":false},
+  "new_rights": {"fetch":true,"store":true,"display":false,"export":true,"ai":false},
+  "old_retention_days": null,
+  "new_retention_days": 30,
+  "rights_narrowed": ["display"],
+  "retention_shortened": true,
+  "reason": "来源授权或内容保留期限收紧，请重新核对相关研究。"
+}
+```
+
+事件 ID 为 `source-policy:<source_id>@<source_version>`；publish 失败时来源版本也回滚。本模块只写 source 与 outbox，M3 owner 消费后再按所属域传播依赖重审。
+
+**合入顺序**：与 core/root 的 knowledge.on_event 接线一同集成后再在真实数据目录启用。旧消费者会忽略未知事件类型后仍标记投递，不能先部署只有事件发布端的版本。消费者重投幂等和按全历史渠道定位的测试由 core/root 负责。
+
+实际执行：`python3 -m unittest tests.test_sources tests.test_sources_policy -v`，**42 项／0.227 秒／OK**。新增 9 项覆盖国家请求/响应双过滤、空与无交集、修改后的失效和在途取消、跨重启分页、人工关联保护、权限事件紧缩条件、期限事件条件和 outbox/source 版本原子回滚。均使用真实 SQLite 与明确的夹具响应；没有新上游请求，也没有用夹具声明真实 WDI 联网或睡眠验收。

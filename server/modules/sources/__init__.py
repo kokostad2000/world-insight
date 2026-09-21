@@ -170,11 +170,19 @@ def _selected(source, topic):
     return (not selected or source['id'] in selected) and (not allowed or topic['id'] in allowed)
 
 
+def _country_scope(source, topic=None):
+    countries = set(source.get('config', {}).get('countries', ['CHN', 'USA']))
+    if topic and topic.get('id'):
+        countries.intersection_update(topic.get('country_codes', []))
+    return sorted(countries)
+
+
 def _targets(store, source):
     topics = store.all('topic')
     if not topics and not source.get('config', {}).get('topic_ids'):
         return [None]
-    return [topic for topic in topics if topic.get('status') == 'active' and _selected(source, topic)]
+    return [topic for topic in topics if topic.get('status') == 'active' and _selected(source, topic)
+            and (source['adapter'] != 'world_bank' or _country_scope(source, topic))]
 
 
 def _scope(store, source, topic_id):
@@ -184,6 +192,8 @@ def _scope(store, source, topic_id):
             raise ApiError(400, 'topic_inactive', '已暂停或归档议题不创建新采集任务。')
         if not _selected(source, topic):
             raise ApiError(400, 'source_outside_topic_scope', '此来源不在议题所选来源与来源允许议题的交集中，未安排采集。')
+        if source['adapter'] == 'world_bank' and not _country_scope(source, topic):
+            raise ApiError(400, 'world_bank_country_scope_empty', '请明确选择与 WDI 来源国家配置有交集的议题国家；未推断国家，未安排采集。')
         return topic
     if _targets(store, source) != [None]:
         raise ApiError(400, 'source_outside_topic_scope', '当前来源没有允许全局采集的范围，请选择获准的活动议题。')
@@ -195,6 +205,8 @@ def _signature(source, topic):
     scope = {'config': source.get('config', {}), 'rights': source.get('rights', {}),
              'topic_id': topic.get('id'), 'source_ids': sorted(topic.get('source_ids', [])),
              'keywords': topic.get('keywords', []), 'exclude_keywords': topic.get('exclude_keywords', [])}
+    if source['adapter'] == 'world_bank':
+        scope.update({'country_codes': sorted(topic.get('country_codes', [])), 'wdi_global_cache': True})
     return hashlib.sha256(json.dumps(scope, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
@@ -233,7 +245,9 @@ def enqueue(store, source_id, topic_id=None):
         if topic_id is None and _targets(store, source) != [None]:
             targets = _targets(store, source)
             if not targets:
-                raise ApiError(400, 'source_outside_topic_scope', '没有同时选中此来源且获来源允许的活动议题，未安排采集。')
+                message = ('没有国家范围与来源配置相交的获准活动议题，请先明确选择国家；未安排采集。'
+                           if source['adapter'] == 'world_bank' else '没有同时选中此来源且获来源允许的活动议题，未安排采集。')
+                raise ApiError(400, 'source_outside_topic_scope', message)
             replies = [enqueue(store, source_id, topic['id']) for topic in targets]
             return {'status': 'queued' if any(x['status'] == 'queued' for x in replies) else 'already_queued',
                     'job': replies[0]['job'], 'jobs': [x['job'] for x in replies]}
@@ -274,6 +288,8 @@ def enqueue(store, source_id, topic_id=None):
                   'coverage_gaps': gaps, 'gap_start': gaps[0]['start'] if gaps else None,
                   'gap_end': gaps[-1]['end'] if gaps else None, 'last_error': None,
                   'covered_until': prior_end, 'last_result_count': job.get('last_result_count', 0) if same_scope else 0}
+        if source['adapter'] == 'world_bank':
+            values['country_codes'] = _country_scope(source, topic)
         if job:
             job = _patch(store, 'collection_job', job, values)
         else:
@@ -291,8 +307,13 @@ def coverage(store, topic_id=None):
         if topic and not _selected(source, topic):
             continue
         targets = [topic] if topic else _targets(store, source)
+        # Explicitly selected WDI without a country intersection is unavailable, not a successful empty query.
+        if not targets and source['adapter'] == 'world_bank':
+            targets = [candidate for candidate in store.all('topic')
+                       if candidate.get('status') == 'active' and _selected(source, candidate)]
         if not targets:
             continue
+        country_scope_empty = source['adapter'] == 'world_bank' and any(target and not _country_scope(source, target) for target in targets)
         jobs = []
         for target in targets:
             job = _get(store, 'collection_job', _job_id(source['id'], target['id'] if target else None))
@@ -306,7 +327,7 @@ def coverage(store, topic_id=None):
                       and now - _date(job['last_success']) <= timedelta(seconds=source['interval_seconds'] * 2)
                       and not job.get('last_error') and job['state'] != 'cancelled'
                       and job.get('completed_scope_signature') == job.get('scope_signature')]
-        fresh = len(fresh_jobs) == len(targets)
+        fresh = not country_scope_empty and len(fresh_jobs) == len(targets)
         pending = any(job['state'] in RUNNING for job in jobs)
         status = ('ready' if fresh else ('failed' if any(job.get('last_error') for job in jobs)
                   else ('stale' if last_success else 'not_configured')))
@@ -318,7 +339,8 @@ def coverage(store, topic_id=None):
             'last_attempt': source.get('last_attempt'), 'last_success': last_success,
             'data_as_of': max((job.get('data_as_of') for job in jobs if job.get('data_as_of')), default=None),
             'next_check': source.get('next_check'),
-            'reason': next((job['last_error'] for job in jobs if job.get('last_error')), None),
+            'reason': ('议题尚未明确选择与 WDI 来源配置相交的国家，未进行国家背景采集。' if country_scope_empty
+                       else next((job['last_error'] for job in jobs if job.get('last_error')), None)),
             'coverage_gaps': gaps,
             'last_result_count': sum(result_counts) if len(jobs) == len(targets) and all(x is not None for x in result_counts) else None,
             'check_complete': fresh and not gaps and not pending})
@@ -362,7 +384,20 @@ def handle(store, method, segments, body, query):
             data = _validate(body, source)
             data['next_check'] = None
             data['status'] = 'ready' if data['enabled'] and data['adapter'] in FREE_ADAPTERS else ('manual' if data['adapter'] == 'manual' else ('not_configured' if data['adapter'] in {'ai', 'paid'} else 'disabled'))
-            return store.update('source', source['id'], data, body.get('expected_version'))
+            updated = store.update('source', source['id'], data, body.get('expected_version'))
+            narrowed = [action for action in ('store', 'display', 'export')
+                        if source.get('rights', {}).get(action) is True and updated.get('rights', {}).get(action) is not True]
+            old_limit, new_limit = source.get('retention_days'), updated.get('retention_days')
+            shortened = new_limit is not None and (old_limit is None or new_limit < old_limit)
+            if narrowed or shortened:
+                store.publish('source.policy_changed', source['id'], {
+                    'source_id': source['id'], 'source_version': updated['version'], 'version': updated['version'],
+                    'previous_version': source['version'], 'old_rights': source.get('rights', {}),
+                    'new_rights': updated.get('rights', {}), 'old_retention_days': old_limit,
+                    'new_retention_days': new_limit, 'rights_narrowed': narrowed, 'retention_shortened': shortened,
+                    'reason': '来源授权或内容保留期限收紧，请重新核对相关研究。',
+                }, event_id=f"source-policy:{source['id']}@{updated['version']}")
+            return updated
     raise ApiError(404, 'not_found', '来源接口不存在。')
 
 
