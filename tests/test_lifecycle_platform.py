@@ -80,6 +80,27 @@ class LifecyclePlatformTests(unittest.TestCase):
             knowledge.ingest(self.store, {'title': evidence['title'], 'url': evidence['url'], 'status': 'withdrawn'})
         self.assertEqual(error.exception.code, 'correction_required')
 
+    def test_topic_country_background_reuses_observation_without_rewriting_identity(self):
+        from server.modules import sources
+        sources.seed_sources(self.store)
+        source_id = next(s['id'] for s in self.store.all('source') if s['adapter'] == 'world_bank')
+        evidence = self.evidence(source_id=source_id)
+        observation = knowledge.upsert_observation(self.store, {'indicator': 'NY.GDP.MKTP.CD', 'country_code': 'USA',
+            'value': None, 'unit': 'USD', 'period': '2025', 'source_id': source_id, 'evidence_version_ids': [evidence['id']+'@1']})
+        self.assertEqual(research.bundle(self.store, self.topic['id'])['observations'], [])
+        topic = research.handle(self.store, 'PATCH', ['topics', self.topic['id']],
+            {'country_codes': ['usa'], 'expected_version': 1}, {})
+        result = research.bundle(self.store, topic['id'])
+        self.assertEqual([r['id'] for r in result['observations']], [observation['id']])
+        self.assertIsNone(result['observations'][0]['value'])
+        self.assertEqual(result['observations'][0]['period'], '2025')
+        self.assertEqual(self.store.get('observation', observation['id'])['version'], 1)
+        self.assertIsNone(self.store.get('observation', observation['id'])['topic_id'])
+        self.assertTrue(any(row['id'] == evidence['id'] for row in result['citations']))
+        research.handle(self.store, 'PATCH', ['topics', topic['id']],
+            {'source_ids': ['source-fed'], 'expected_version': topic['version']}, {})
+        self.assertEqual(research.bundle(self.store, topic['id'])['observations'], [])
+
     def test_reading_baseline_limits_unread_without_faking_read_history(self):
         baseline = '2026-09-20T00:00:00Z'
         self.store.update('topic', self.topic['id'], {'reading_baseline': baseline}, 1)

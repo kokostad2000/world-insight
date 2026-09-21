@@ -8,6 +8,7 @@ from server.modules.knowledge import _present as present_evidence, source_counts
 
 COLLECTIONS = {"topics": "topic", "judgments": "judgment", "scenarios": "scenario", "impact-paths": "impact_path", "reviews": "review"}
 TOPIC_FIELDS = {"question", "regions", "actors", "time_range", "keywords", "exclude_keywords", "rationale", "status", "followed", "reading_baseline", "coverage_gaps", "source_ids", "pinned", "is_fixture"}
+TOPIC_FIELDS.add("country_codes")
 JUDGMENT_FIELDS = {"topic_id", "conclusion", "judgment_type", "evidence_version_ids", "opposing_evidence_version_ids", "assumptions", "missing_evidence", "confidence", "confidence_reason", "valid_until", "outcome_criteria", "review_date", "status", "author", "reviewer", "change_reason", "is_fixture"}
 SCENARIO_FIELDS = {"topic_id", "title", "description", "valid_until", "assumptions", "evidence_version_ids", "opposing_evidence_version_ids", "counterevidence_search", "signals", "invalidation_conditions", "review_date", "status", "change_reason", "author", "reviewer", "is_fixture"}
 PATH_FIELDS = {"topic_id", "title", "nodes", "edges", "status", "change_reason", "author", "reviewer", "is_fixture"}
@@ -20,6 +21,11 @@ def _topic(store, data, old=None):
     item["question"] = text(item["question"], "question", True)
     for key in ("regions", "actors", "keywords", "exclude_keywords", "coverage_gaps", "source_ids"):
         item[key] = strings(item[key], key)
+    item["country_codes"] = [code.upper() for code in strings(item.get("country_codes", []), "country_codes")]
+    if any(len(code) != 3 or not code.isascii() or not code.isalpha() for code in item["country_codes"]):
+        fail("国家背景须使用三位字母国家代码，如 CHN、USA")
+    for source_id in item["source_ids"]:
+        store.get("source", source_id)
     for key in ("followed", "pinned"):
         if type(item[key]) is not bool:
             fail(f"{key} 须为布尔值")
@@ -216,6 +222,15 @@ def bundle(store, topic_id, include_history=False, action="display"):
     result = {"topic": store.get("topic", topic_id)}
     for key, kind in (("evidence", "evidence"), ("claims", "claim"), ("events", "event"), ("judgments", "judgment"), ("scenarios", "scenario"), ("impact_paths", "impact_path"), ("reviews", "review"), ("observations", "observation")):
         result[key] = store.all(kind, topic_id=topic_id)
+    countries = set(result["topic"].get("country_codes", []))
+    scope = set(result["topic"].get("source_ids", []))
+    observation_ids = {row["id"] for row in result["observations"]}
+    for observation in store.all("observation"):
+        if observation.get("country_code") in countries and (not scope or observation.get("source_id") in scope) and observation["id"] not in observation_ids:
+            result["observations"].append(observation)
+            observation_ids.add(observation["id"])
+    result["country_background_scope"] = {"country_codes": sorted(countries), "source_ids": sorted(scope),
+        "note": "按明确选择的国家读取已保存指标，观测期不变；不从地区自由文本推测国家"}
     # Include material referenced from another topic or subsequently unlinked.
     refs = _all_refs(result)
     evidence_ids = {r["id"] for r in result["evidence"]}
