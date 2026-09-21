@@ -32,6 +32,9 @@ def on_event(store,event):
                           'reason':payload.get('reason'),'discovered_at':event['created_at'],
                           'occurred_at':payload.get('occurred_at'),'priority':0 if needs_review else (1 if event_type=='source.failed' else 2),
                           'needs_review':needs_review,'evidence_version_ids':payload.get('evidence_version_ids',[]),
+                          'status':payload.get('status'),'missing_evidence':payload.get('missing_evidence'),
+                          'evidence_support':payload.get('evidence_support'),'support_label':payload.get('support_label'),
+                          'object_kind':payload.get('object_kind'),
                           'object_version':payload.get('version'),'unverified':event_type in ('evidence.created','claim.created','event.created')},record_id)
     if needs_review or event_type=='source.failed':
         store.create('notification',{'event_id':event['id'],'topic_id':payload.get('topic_id'),
@@ -96,6 +99,15 @@ def dashboard(store,query):
     try:limit=min(200,max(1,int(query.get('limit',20))));offset=max(0,int(query.get('offset',0)))
     except (ValueError,TypeError):raise ApiError(400,'invalid_pagination','分页参数必须为整数')
     visible=items[offset:offset+limit]
+    # Older change records predate support labels. Read their pinned judgment version,
+    # never today's revised conclusion, to present the original evidential boundary.
+    for change in visible:
+        if change.get('type') in ('judgment.created','judgment.revised') and not change.get('evidence_support') and _get(store,'judgment',change['aggregate_id']):
+            for record in store.history('judgment',change['aggregate_id']):
+                if record['version']==change.get('object_version'):
+                    for field in ('status','missing_evidence','evidence_support','support_label'):
+                        change[field]=record.get(field)
+                    break
     due=[];today=store.now()[:10]
     for kind in ('judgment','scenario','impact_path'):
         for record in store.all(kind,topic_id=topic_id):
@@ -171,7 +183,14 @@ def handle(store,method,segments,body,query):
     if name not in kinds:return None
     kind=kinds[name]
     if len(segments)==1:
-        if method=='GET':return store.list(kind,topic_id=query.get('topic_id') or None,limit=query.get('limit',20),offset=query.get('offset',0))
+        if method=='GET':
+            if kind=='notification' and query.get('status'):
+                if query['status'] not in ('read','unread'):raise ApiError(400,'invalid_status','提醒状态无效')
+                try:limit=min(200,max(1,int(query.get('limit',20))));offset=max(0,int(query.get('offset',0)))
+                except (TypeError,ValueError):raise ApiError(400,'invalid_pagination','分页参数必须为整数')
+                rows=[row for row in store.all(kind,topic_id=query.get('topic_id') or None) if row.get('status')==query['status']]
+                return {'items':rows[offset:offset+limit],'total':len(rows),'limit':limit,'offset':offset}
+            return store.list(kind,topic_id=query.get('topic_id') or None,limit=query.get('limit',20),offset=query.get('offset',0))
         if method=='POST' and name=='briefs':return make_brief(store,body)
     if len(segments)==2:
         if method=='GET':return store.get(kind,segments[1])

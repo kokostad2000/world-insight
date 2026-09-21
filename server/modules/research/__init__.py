@@ -158,7 +158,7 @@ PREPARERS = {"topic": (TOPIC_FIELDS, _topic), "judgment": (JUDGMENT_FIELDS, _jud
 
 
 def _payload(record, kind):
-    return {"topic_id": record["id"] if kind == "topic" else record.get("topic_id"), "title": record.get("question") or record.get("title") or record.get("conclusion") or record.get("rationale"), "version": record["version"], "object_kind": kind, "evidence_version_ids": record.get("evidence_version_ids", []), "reason": record.get("change_reason"), "support_label": record.get("support_label"), "evidence_support": record.get("evidence_support"), "needs_review": record.get("status") == "needs_review"}
+    return {"topic_id": record["id"] if kind == "topic" else record.get("topic_id"), "title": record.get("question") or record.get("title") or record.get("conclusion") or record.get("rationale"), "version": record["version"], "object_kind": kind, "evidence_version_ids": record.get("evidence_version_ids", []), "reason": record.get("change_reason"), "support_label": record.get("support_label"), "evidence_support": record.get("evidence_support"), "needs_review": record.get("status") == "needs_review", "status": record.get("status"), "missing_evidence": record.get("missing_evidence", "")}
 
 
 def _review_summary(items):
@@ -184,7 +184,7 @@ def _list(store, kind, query):
     if query.get("search"):
         rows = [r for r in rows if query["search"].lower() in json.dumps(r, ensure_ascii=False).lower()]
     if query.get("changed") == "true":
-        rows = [r for r in rows if r["version"] > 1]
+        rows = [r for r in rows if len({v.get("conclusion", "") for v in store.history(kind, r["id"])}) > 1] if kind == "judgment" else [r for r in rows if r["version"] > 1]
     if query.get("since") or query.get("until"):
         rows = [r for r in rows if in_range(r.get("updated_at"),query.get("since"),query.get("until"))]
     result = {"items": rows[offset:offset + limit], "total": len(rows), "limit": limit, "offset": offset, "data_status": "fresh", "empty_reason": None if rows else "no_matches"}
@@ -212,7 +212,7 @@ def _evidence_view(store, record, action):
     latest = store.get("evidence", record["id"])
     result = present_evidence(record, action)
     permission = latest.get("rights", {}).get(action)
-    if permission not in (True, "excerpt", "full", "allowed") or latest.get("rights",{}).get("store") not in (True,"excerpt","full","allowed") or latest.get("status") == "restricted":
+    if permission not in (True, "excerpt", "full", "allowed") or latest.get("rights",{}).get("store") not in (True,"excerpt","full","allowed") or latest.get("status") == "restricted" or latest.get("deleted"):
         result["excerpt"], result["translation"] = "", ""
         result["content_restricted"] = True
     return result

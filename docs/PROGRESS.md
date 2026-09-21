@@ -2,6 +2,18 @@
 
 2026-09-21：工程持续实施。私有 origin 为 https://github.com/kokostad2000/world-insight；仅本地提交，从未推送。Python 3.11 标准库 + SQLite WAL + 原生 ES modules/SVG；运行时无 npm/pip 下载。
 
+## 2026-09-21 恢复后的增量
+
+- 主线已合入 source scope/国家背景选择、collector provenance、M7有限期限备份净化与附件回退保护、生命周期后端及32项运维/期限联合回归。
+- 新增 `knowledge.lifecycle` 路由接线和持久化、有限批次自动维护检查点；迁移前恢复点执行合法内容净化。
+- 独立审查报告见 `docs/handoffs/p0-audit.md`，八项具体问题。主线修复权限收紧重审传播、历史变化假设标签、渠道元数据保留、时区时间线、全库判断/复盘分页与搜索、旧未读通知、情景/路径待办编辑目标。结论变更筛选比较历史结论而非仅版本号。
+- `python3 -m unittest discover -s tests -v` 实际146项通过，31.969秒，Mac隔离进程/SQLite/端口，见 `docs/evidence/integration-audit-round-two.txt`。随后结论筛选与呈现修订的11项针对回归通过0.330秒。自动测试不代替完整浏览器验收。
+- 中文/空格路径全新本地clone，启动/重复启动/停止完成；从运行中的真实源库备份恢复到空目录，并在恢复实例8876浏览器修改旧判断v2→v3、议题国家/来源设置v1→v2，显示10条USA年度WDI观测。命令证据 `mac-clean-restore.json`，路径 `mac-gui-paths.json`。Finder GUI受辅助功能/录屏权限阻止，未冒充双击已通过。
+- 当前并行：web Agent交付生命周期界面；sources Agent实现相似材料候选界面；ops Agent检查读取/导出时来源级权限及期限。三者独立worktree，root独占app/平台和集成。
+- 七天观察仍未开始，10条官方手工复核及全量质量抽查尚未完成；GDELT有效响应尚未通过。AC矩阵仍需按证据逐项刷新。
+
+下方早期进度保留作历史；当前状态以上述增量与Git/进程实测为准。
+
 ## 已合入
 
 - 基线、PRD原稿、七模块共享契约、平台/研究/资料库/活动、真实免费来源、中文页面均已合入。

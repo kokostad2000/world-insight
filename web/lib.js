@@ -32,6 +32,20 @@ export function paragraphs(value, fallback = '尚未记录') { return value ? `<
 export function versionId(evidence) { return evidence.version_id || `${evidence.id}@${evidence.version}`; }
 export function visibleReadPayload(snapshot, changes) { return {snapshot_at:snapshot,items:changes.map(x => ({id:x.id,version:x.version}))}; }
 export function eventCoordinates(event) { const l = event.location || {}; return l.precision === 'coordinate' && Number.isFinite(l.lat) && Number.isFinite(l.lon) && l.lat >= -90 && l.lat <= 90 && l.lon >= -180 && l.lon <= 180 ? [l.lon,l.lat] : null; }
+export function timeOrder(value) {
+  if(!value)return Number.NEGATIVE_INFINITY;
+  const normalized=/^\d{4}-\d{2}$/.test(value)?value+'-01T00:00:00Z':/^\d{4}-\d{2}-\d{2}$/.test(value)?value+'T00:00:00Z':value;
+  const instant=Date.parse(normalized);return Number.isFinite(instant)?instant:Number.NEGATIVE_INFINITY;
+}
+export function reviewTarget(record) {
+  return record.kind==='scenario'?{collection:'scenarios',label:'审阅情景',canReview:false}:record.kind==='impact_path'?{collection:'impact-paths',label:'审阅路径',canReview:false}:{collection:'judgments',label:'审阅判断',canReview:true};
+}
+export function preserveChannels(previous, urls, sourceId) {
+  const selected=new Set(urls.map(url=>String(url).trim()).filter(Boolean));
+  const kept=previous.filter(channel=>!channel.url||selected.has(channel.url)).map(channel=>({...channel}));
+  for(const url of selected)if(!kept.some(channel=>channel.url===url))kept.push({url,source_id:sourceId});
+  return kept;
+}
 export async function api(path, options = {}) {
   const response = await fetch('/api' + path, {...options, headers:{'Content-Type':'application/json',...options.headers}, body:options.body === undefined ? undefined : JSON.stringify(options.body)});
   const data = await response.json();

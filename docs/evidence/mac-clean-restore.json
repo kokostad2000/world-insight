@@ -1,0 +1,67 @@
+[
+  {
+    "command": [
+      "./scripts/check-config.sh",
+      "--init"
+    ],
+    "exit_code": 0,
+    "stdout": "{\n  \"ok\": true,\n  \"checked_at\": \"2026-09-21T01:14:50.384754Z\",\n  \"checks\": [\n    {\n      \"level\": \"pass\",\n      \"name\": \"python\",\n      \"message\": \"CPython 3.11.4 / Darwin arm64\",\n      \"fix\": null\n    },\n    {\n      \"level\": \"pass\",\n      \"name\": \"curl\",\n      \"message\": \"系统 curl 可用；本地检查不发出网络请求\",\n      \"fix\": null\n    },\n    {\n      \"level\": \"pass\",\n      \"name\": \"git\",\n      \"message\": \"Git 可用；本地检查未连接 GitHub\",\n      \"fix\": null\n    },\n    {\n      \"level\": \"pass\",\n      \"name\": \"data_dir\",\n      \"message\": \"目录可读写\",\n      \"fix\": \"选择可写目录，不修改其他应用数据\"\n    },\n    {\n      \"level\": \"pass\",\n      \"name\": \"backup_dir\",\n      \"message\": \"目录可读写\",\n      \"fix\": \"选择可写目录，不修改其他应用数据\"\n    },\n    {\n      \"level\": \"warning\",\n      \"name\": \"data_binding\",\n      \"message\": \"此目录尚未确认，未自动创建空库\",\n      \"fix\": \"首次新建使用 --init；已有研究请指定原数据目录\"\n    },\n    {\n      \"level\": \"pass\",\n      \"name\": \"schema\",\n      \"message\": \"新库使用数据库版本 1\",\n      \"fix\": null\n    },\n    {\n      \"level\": \"pass\",\n      \"name\": \"port\",\n      \"message\": \"本机回环端口可用\",\n      \"fix\": null\n    },\n    {\n      \"level\": \"pass\",\n      \"name\": \"disk\",\n      \"message\": \"可用空间满足本地启动要求\",\n      \"fix\": \"释放明确可重建内容或更换数据目录\"\n    },\n    {\n      \"level\": \"warning\",\n      \"name\": \"optional_providers\",\n      \"message\": \"AI、航空、船舶、行情默认未接入；无收费调用，不阻止人工研究\",\n      \"fix\": null\n    },\n    {\n      \"level\": \"pass\",\n      \"name\": \"network_boundary\",\n      \"message\": \"以上仅本地检查，未向免费源或收费服务发送请求；联网状态须单独探测\",\n      \"fix\": null\n    }\n  ],\n  \"data_dir\": \"/private/tmp/World Insight 中文 QA-znmxrdsi/初始资料 Data\",\n  \"port\": 8876,\n  \"program_root\": \"/private/tmp/World Insight 中文 QA-znmxrdsi/全新代码 repo\"\n}\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "./scripts/start.sh",
+      "--init",
+      "--no-browser",
+      "--no-scheduler"
+    ],
+    "exit_code": 0,
+    "stdout": "{\n  \"status\": \"ok\",\n  \"app\": \"world-insight\",\n  \"version\": \"0.1.0\",\n  \"schema_version\": 1,\n  \"instance_id\": \"b9ac1cf1-59aa-4492-83cd-e453da6c1fa1\",\n  \"data_dir\": \"/private/tmp/World Insight 中文 QA-znmxrdsi/初始资料 Data\",\n  \"pid\": 80843,\n  \"maintenance\": false,\n  \"root\": \"/private/tmp/World Insight 中文 QA-znmxrdsi/全新代码 repo\",\n  \"url\": \"http://127.0.0.1:8876\"\n}\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "./scripts/start.sh",
+      "--no-browser",
+      "--no-scheduler"
+    ],
+    "exit_code": 0,
+    "stdout": "{\n  \"status\": \"reused\",\n  \"pid\": 80843,\n  \"port\": 8876,\n  \"data_dir\": \"/private/tmp/World Insight 中文 QA-znmxrdsi/初始资料 Data\",\n  \"root\": \"/private/tmp/World Insight 中文 QA-znmxrdsi/全新代码 repo\",\n  \"instance_id\": \"b9ac1cf1-59aa-4492-83cd-e453da6c1fa1\",\n  \"version\": \"0.1.0\",\n  \"started_at\": \"2026-09-21T01:14:50.711009Z\",\n  \"url\": \"http://127.0.0.1:8876\"\n}\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "./scripts/stop.sh"
+    ],
+    "exit_code": 0,
+    "stdout": "{\n  \"status\": \"stopped\",\n  \"pid\": 80843,\n  \"data_preserved\": true\n}\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "./scripts/restore.sh",
+      "/private/tmp/world-insight-root-real-20260921.wibackup",
+      "--data-dir",
+      "/private/tmp/World Insight 中文 QA-znmxrdsi/恢复资料 Data",
+      "--port",
+      "8876"
+    ],
+    "exit_code": 0,
+    "stdout": "{\n  \"status\": \"preview\",\n  \"target\": \"/private/tmp/World Insight 中文 QA-znmxrdsi/恢复资料 Data\",\n  \"package\": \"/private/tmp/world-insight-root-real-20260921.wibackup\",\n  \"incoming\": {\n    \"schema_version\": 1,\n    \"counts\": {\n      \"change\": 47,\n      \"claim\": 1,\n      \"collection_job\": 3,\n      \"evidence\": 40,\n      \"evidence_alias\": 80,\n      \"judgment\": 1,\n      \"knowledge_index\": 1,\n      \"notification\": 2,\n      \"observation\": 20,\n      \"source\": 6,\n      \"topic\": 1\n    },\n    \"version_count\": 415,\n    \"integrity\": \"ok\"\n  },\n  \"existing\": null,\n  \"requires_replace\": false,\n  \"credentials_included\": false\n}\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "./scripts/restore.sh",
+      "/private/tmp/world-insight-root-real-20260921.wibackup",
+      "--data-dir",
+      "/private/tmp/World Insight 中文 QA-znmxrdsi/恢复资料 Data",
+      "--port",
+      "8876",
+      "--apply"
+    ],
+    "exit_code": 0,
+    "stdout": "{\n  \"status\": \"restored\",\n  \"target\": \"/private/tmp/World Insight 中文 QA-znmxrdsi/恢复资料 Data\",\n  \"package\": \"/private/tmp/world-insight-root-real-20260921.wibackup\",\n  \"incoming\": {\n    \"schema_version\": 1,\n    \"counts\": {\n      \"change\": 47,\n      \"claim\": 1,\n      \"collection_job\": 3,\n      \"evidence\": 40,\n      \"evidence_alias\": 80,\n      \"judgment\": 1,\n      \"knowledge_index\": 1,\n      \"notification\": 2,\n      \"observation\": 20,\n      \"source\": 6,\n      \"topic\": 1\n    },\n    \"version_count\": 415,\n    \"integrity\": \"ok\"\n  },\n  \"existing\": null,\n  \"requires_replace\": false,\n  \"credentials_included\": false,\n  \"verification\": {\n    \"schema_version\": 1,\n    \"counts\": {\n      \"change\": 47,\n      \"claim\": 1,\n      \"collection_job\": 3,\n      \"evidence\": 40,\n      \"evidence_alias\": 80,\n      \"judgment\": 1,\n      \"knowledge_index\": 1,\n      \"notification\": 2,\n      \"observation\": 20,\n      \"source\": 6,\n      \"topic\": 1\n    },\n    \"version_count\": 415,\n    \"integrity\": \"ok\"\n  },\n  \"recovery_package\": null,\n  \"restore_point\": \"/private/tmp/World Insight 中文 QA-znmxrdsi/恢复资料 Data-restore-point-16529c2269ba45b0b351c46024efc04e\",\n  \"credentials_note\": \"未包含或覆盖 .env/密钥；可选来源凭据需自行重新填写\"\n}\n",
+    "stderr": ""
+  }
+]

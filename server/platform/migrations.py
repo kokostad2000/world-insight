@@ -39,6 +39,10 @@ def migrate(db, path=None):
             checkpoint = Path(path).with_name(f'migration-before-{current}-to-{version}.sqlite')
             if not checkpoint.exists():
                 dest = sqlite3.connect(str(checkpoint)); db.backup(dest); dest.close()
+            # Pre-migration recovery artifacts obey the same source-content policy
+            # as user backups. A failed sanitation blocks the migration.
+            from ops.backup import sanitize_snapshot
+            sanitize_snapshot(checkpoint, policy_source=path)
         try:
             db.execute('BEGIN IMMEDIATE')
             for statement in statements: db.execute(statement)

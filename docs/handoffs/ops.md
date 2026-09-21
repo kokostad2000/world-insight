@@ -73,3 +73,16 @@ Independent review fixes:
 Executed `python3 -m unittest tests.test_ops_lifecycle tests.test_ops_retention -v` on actual Mac: **29 passed in 29.205s**. Raw output: `docs/evidence/ops-retention-review-tests.txt`. Added real subprocess cases for pending startup and maintenance restore refusal; attachment-only changes/new paths, a change during stop, and hash-read failure all preserve current data. Six real SQLite/package cases verify old and latest finite-source content absent from the raw archive/restored database bytes, preserved notes/references/manifest hashes, default unbounded content, legacy old-package sanitization, stricter current policy, direct recovery-point sanitization, invalid-policy rejection and standalone migration snapshot helper. No real-source/sleep/Finder claims added.
 
 Merge this commit after `bea9f0b`, then merge lifecycle pure evaluator and root migration hookup, and run the targeted combined lifecycle/backup tests. Main retains M4 pending real observation.
+
+## Actual candidate lifecycle / backup integration (after 114ab8d)
+
+Merged `dev/lifecycle` commit `114ab8d`, then changed only `tests/test_ops_retention.py` and this handoff. No ops implementation change was necessary: the real `evaluate_retention(snapshots,sources,settings,now)` interface works with the snapshot sanitizer.
+
+Executed `python3 -m unittest tests.test_ops_retention tests.test_lifecycle tests.test_lifecycle_platform -v`: **32 passed in 1.292s**, exit 0. New four integration cases use actual Store/SQLite/archive/restore logic and the actual lifecycle evaluator; the collector's historical first collection date is an explicit fixture, not a claim of real elapsed observation:
+
+1. An unreferenced, untouched collector candidate beyond 90 days loses old and current body/translation bytes in the backup while the original active database remains unchanged and all version IDs are preserved.
+2. A legacy archive containing the same expired candidate is sanitized before restoration; subsequent real `knowledge.ingest(..., origin="collector")` cannot reinsert its body. Raw SQLite bytes do not contain old, current or attempted-refetch body tokens.
+3. A historical manual note protects an otherwise old unbounded collector candidate even when a legacy fixture clears its latest notes and manually_touched flag. The note and all legal historical/current body contents survive backup and restoration.
+4. A persisted disabled candidate-retention setting preserves unbounded candidate content and remains disabled after restoration.
+
+This closes the prior handoff's unverified actual candidate-evaluator integration item. Root's platform migration-checkpoint hookup is still a separate pending root change at this moment; the independently callable sanitizer was already tested with a real SQLite migration-style snapshot. No network, browser, Finder, actual elapsed seven-day retention or real-source claim was added.
