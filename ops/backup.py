@@ -8,7 +8,7 @@ import tempfile
 import uuid
 import zipfile
 from pathlib import Path, PurePosixPath
-from .runtime import OpsError, atomic_json, event_log, now, own_runtime, program_info, read_json, selected_program, start, stop
+from .runtime import OpsError, atomic_json, event_log, now, own_runtime, pending_runtime, program_info, read_json, selected_program, start, stop
 
 FORMAT = 1
 DB_NAME = "world-insight.sqlite"
@@ -95,6 +95,108 @@ def _attachment_paths(data_dir):
     return paths
 
 
+
+def _source_limits(connection):
+    """Remember any explicit finite policy in source history; absence never invents a term."""
+    limits = {}
+    for source_id, raw in connection.execute("SELECT id,data FROM versions WHERE kind='source'"):
+        source = json.loads(raw)
+        days = source.get("retention_days")
+        if days is None:
+            continue
+        if type(days) is not int or not 1 <= days <= 36500:
+            raise OpsError("来源保留期限无效，拒绝生成可能保留过期正文的快照")
+        limits[source_id] = min(days, limits.get(source_id, days))
+    return limits
+
+
+def sanitize_snapshot(path, policy_source=None, observed_at=None):
+    """Redact only a disposable/staged SQLite copy; never call on the live database.
+
+    Finite-source bodies are omitted proactively, including before their due date,
+    so an immutable archive cannot later resurrect content whose term has elapsed.
+    Version IDs, user notes, citations and record counts are preserved. Returned
+    metadata describes omissions rather than claiming a complete content backup.
+    """
+    path = Path(path).resolve()
+    if policy_source is not None and path == Path(policy_source).resolve():
+        raise OpsError("净化目标必须是独立快照，不能在原始研究数据库上运行")
+    db = sqlite3.connect(str(path))
+    try:
+        # Keep no old content in rollback/WAL/freelist pages after sanitization.
+        db.execute("PRAGMA journal_mode=DELETE")
+        db.execute("PRAGMA secure_delete=ON")
+        limits = _source_limits(db)
+        external_limits = {}
+        if policy_source is not None and Path(policy_source).is_file():
+            external = sqlite3.connect(f"file:{Path(policy_source)}?mode=ro", uri=True)
+            try:
+                external_limits = _source_limits(external)
+            finally:
+                external.close()
+            for source_id, days in external_limits.items():
+                limits[source_id] = min(days, limits.get(source_id, days))
+        rows = [(kind, record_id, version, json.loads(raw)) for kind, record_id, version, raw in db.execute("SELECT kind,id,version,data FROM versions")]
+        snapshots = [{"kind": kind, "record": record} for kind, _, _, record in rows]
+        sources = [json.loads(raw) for (raw,) in db.execute("SELECT data FROM records WHERE kind='source'")]
+        for source in sources:
+            if source["id"] in limits:
+                source["retention_days"] = limits[source["id"]]
+        policies = [json.loads(raw) for (raw,) in db.execute("SELECT data FROM records WHERE kind='retention_settings' ORDER BY updated_at")]
+        settings = policies[-1] if policies else None
+        decisions, candidate_status = {}, "available"
+        try:
+            from server.modules.knowledge.lifecycle import evaluate_retention
+        except ImportError:
+            if any(kind == "evidence" and record.get("ingest_origin") == "collector" for kind, _, _, record in rows):
+                raise OpsError("候选材料保留策略评估器不可用；请先使用兼容程序，未生成可能复活到期正文的备份")
+            candidate_status = "not_required_for_legacy_or_manual_records"
+        else:
+            assessment = evaluate_retention(snapshots, sources, settings=settings, now=observed_at)
+            for action in assessment.get("actions", []):
+                if action.get("kind") == "evidence" and action.get("redact_content"):
+                    decisions[action["id"]] = action
+        affected, source_ids_by_evidence = set(), {}
+        for kind, record_id, _, record in rows:
+            if kind != "evidence":
+                continue
+            source_ids = {record.get("source_id")} | {channel.get("source_id") for channel in record.get("channels", []) if isinstance(channel, dict)}
+            bounded = sorted(source_id for source_id in source_ids if source_id in limits)
+            if bounded:
+                affected.add(record_id)
+                source_ids_by_evidence.setdefault(record_id, set()).update(bounded)
+            if record_id in decisions or record.get("content_expired"):
+                affected.add(record_id)
+        changed_versions, content_versions = 0, 0
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            for kind, record_id, version, record in rows:
+                if kind != "evidence" or record_id not in affected:
+                    continue
+                original = json.dumps(record, ensure_ascii=False, allow_nan=False)
+                had_content = bool(record.get("excerpt") or record.get("translation") or record.get("content_fingerprint"))
+                content_versions += int(had_content)
+                record.update({"excerpt": "", "translation": "", "content_fingerprint": None, "backup_content_omitted": True})
+                record["backup_content_omitted_reason"] = "bounded_source_policy" if record_id in source_ids_by_evidence else "retention_expired"
+                if record_id in decisions or record.get("content_expired"):
+                    record["content_expired"] = True
+                replacement = json.dumps(record, ensure_ascii=False, allow_nan=False)
+                if replacement != original:
+                    db.execute("UPDATE versions SET data=? WHERE kind='evidence' AND id=? AND version=?", (replacement, record_id, version))
+                    db.execute("UPDATE records SET data=? WHERE kind='evidence' AND id=? AND version=?", (replacement, record_id, version))
+                    changed_versions += 1
+            db.commit()
+        except BaseException:
+            db.rollback()
+            raise
+        if affected:
+            db.execute("VACUUM")
+        return {"policy_version": 1, "mode": "bounded-source-content-omitted", "evaluated_at": observed_at or now(), "omitted_evidence_ids": sorted(affected), "omitted_evidence_count": len(affected), "changed_version_count": changed_versions, "versions_with_content_removed": content_versions, "bounded_sources": [{"source_id": source_id, "retention_days": days} for source_id, days in sorted(limits.items())], "candidate_policy_status": candidate_status, "candidate_actions": [{"id": key, "action": item.get("action"), "reason": item.get("reason")} for key, item in sorted(decisions.items())], "preserved": ["metadata", "user_notes", "version_ids", "citations", "record_counts"], "omitted_fields": ["excerpt", "translation", "content_fingerprint"], "legacy_policy": "missing_or_null_retention_days_does_not_invent_a_limit; missing_source_is_rejected_by_integrity", "notice": "有来源保存期限的材料仅备份元数据与用户注释；全部历史摘录、译文和内容指纹均省略，不能从此包恢复正文。默认无期限来源的合法内容保持完整。"}
+    except (sqlite3.DatabaseError, ValueError, TypeError):
+        raise OpsError("保留策略快照净化失败，未将快照标为有效备份")
+    finally:
+        db.close()
+
 def _snapshot(source, target):
     src = sqlite3.connect(str(source), timeout=20)
     dest = sqlite3.connect(str(target))
@@ -104,6 +206,7 @@ def _snapshot(source, target):
     finally:
         dest.close()
         src.close()
+    return sanitize_snapshot(target, policy_source=source)
 
 
 def create_backup(config, output=None, label="manual"):
@@ -124,7 +227,7 @@ def create_backup(config, output=None, label="manual"):
     try:
         with tempfile.TemporaryDirectory(prefix="world-insight-backup-", dir=output.parent) as tmp:
             stage = Path(tmp)
-            _snapshot(config["db_path"], stage / DB_NAME)
+            content_policy = _snapshot(config["db_path"], stage / DB_NAME)
             verified = inspect_database(stage / DB_NAME, program["schema_version"])
             identity = read_json(config["data_dir"] / "instance.json")
             atomic_json(stage / "instance.json", identity)
@@ -142,7 +245,7 @@ def create_backup(config, output=None, label="manual"):
             if before != after:
                 raise OpsError("附件在备份期间变化，未生成有效备份")
             entries = [{"path": str(path.relative_to(stage)), "size": path.stat().st_size, "sha256": sha256(path)} for path in sorted(stage.rglob("*")) if path.is_file()]
-            manifest = {"format": FORMAT, "state": "complete", "created_at": now(), "label": label, "program": program, "database": verified, "instance_id": identity["instance_id"], "files": entries, "excluded": [".env", "credentials", "cache", "logs", "runtime.json", "active-program.json"]}
+            manifest = {"format": FORMAT, "state": "complete", "created_at": now(), "label": label, "program": program, "database": verified, "instance_id": identity["instance_id"], "files": entries, "excluded": [".env", "credentials", "cache", "logs", "runtime.json", "active-program.json"], "content_policy": content_policy}
             atomic_json(stage / "manifest.json", manifest)
             with zipfile.ZipFile(partial, "w", compression=zipfile.ZIP_DEFLATED) as archive:
                 for entry in entries:
@@ -160,7 +263,7 @@ def create_backup(config, output=None, label="manual"):
         raise
 
 
-def unpack_verified(package, destination, maximum_schema=None):
+def unpack_verified(package, destination, maximum_schema=None, policy_source=None):
     destination = Path(destination)
     try:
         with zipfile.ZipFile(package) as archive:
@@ -197,6 +300,10 @@ def unpack_verified(package, destination, maximum_schema=None):
         identity = read_json(destination / "instance.json")
         if identity.get("instance_id") != manifest.get("instance_id"):
             raise OpsError("备份实例身份不一致")
+        policy = sanitize_snapshot(destination / DB_NAME, policy_source=policy_source)
+        inspect_database(destination / DB_NAME, maximum_schema)
+        manifest["restoration_content_policy"] = policy
+        manifest["restored_database_sha256"] = sha256(destination / DB_NAME)
         return manifest
     except (zipfile.BadZipFile, KeyError, TypeError, ValueError, OSError):
         raise OpsError("备份损坏或清单不完整，原数据未替换")
@@ -209,6 +316,7 @@ def validate_backup(package, maximum_schema=None):
 
 def _replace_data(config, stage):
     """Stopped-instance replacement with a retained rollback directory."""
+    sanitize_snapshot(Path(stage) / DB_NAME, policy_source=config["db_path"] if config["db_path"].exists() else None)
     data_dir = config["data_dir"]
     data_dir.mkdir(parents=True, exist_ok=True)
     rollback = data_dir.parent / (data_dir.name + "-restore-point-" + uuid.uuid4().hex)
@@ -238,29 +346,47 @@ def _replace_data(config, stage):
         for name in moved:
             os.replace(rollback / name, data_dir / name)
         raise
+    # After successful installation the old files are a recovery copy, not the live
+    # database. Apply the same finite-source policy before exposing that point.
+    if (rollback / DB_NAME).exists():
+        recovery_policy = sanitize_snapshot(rollback / DB_NAME, policy_source=data_dir / DB_NAME)
+        atomic_json(rollback / "content-policy.json", recovery_policy)
     return rollback
 
 
+def _assert_restore_idle(config):
+    if (config["data_dir"] / "maintenance.json").exists():
+        raise OpsError("目标处于更新或回退维护状态；先核对 updates 日志并使用 update.sh --recover <更新ID>，不能用恢复包绕过中断更新")
+    if pending_runtime(config):
+        raise OpsError("目标有尚未完成启动的本项目进程；先使用 stop.sh 停止启动，再恢复；未替换打开中的数据库")
+    if own_runtime(config, require_health=False):
+        raise OpsError("目标实例仍在运行；请先使用 stop.sh 停止，再恢复（恢复不会暗中中断编辑）")
+
+
 def restore_backup(config, package, apply=False, replace=False, start_after=False):
+    # A maintenance transaction or pending startup is never a normal restore target,
+    # including previews that might otherwise imply replacement is safe.
+    if (config["data_dir"] / "maintenance.json").exists() or pending_runtime(config):
+        _assert_restore_idle(config)
     program = program_info(selected_program(config))
     package = Path(package).resolve()
     # Stage adjacent to data for atomic rename; validation never touches the target database.
     config["data_dir"].parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="world-insight-restore-stage-", dir=config["data_dir"].parent) as tmp:
         stage = Path(tmp)
-        manifest = unpack_verified(package, stage, program["schema_version"])
+        manifest = unpack_verified(package, stage, program["schema_version"], policy_source=config["db_path"] if config["db_path"].exists() else None)
         existing = config["db_path"].exists() or (config["data_dir"] / "instance.json").exists() or (config["data_dir"].exists() and any(child.name != "operations.lock" for child in config["data_dir"].iterdir()))
-        preview = {"status": "preview", "target": str(config["data_dir"]), "package": str(package), "incoming": manifest["database"], "existing": inspect_database(config["db_path"]) if config["db_path"].exists() else None, "requires_replace": existing, "credentials_included": False}
+        preview = {"status": "preview", "target": str(config["data_dir"]), "package": str(package), "incoming": manifest["database"], "existing": inspect_database(config["db_path"]) if config["db_path"].exists() else None, "requires_replace": existing, "credentials_included": False, "content_policy": manifest["restoration_content_policy"]}
         if not apply:
             return preview
         if existing and not replace:
             raise OpsError("目标已有数据，预览后必须显式 --replace；未替换任何记录")
-        if own_runtime(config, require_health=False):
-            raise OpsError("目标实例仍在运行；请先停止，再恢复（恢复不会暗中中断编辑）")
+        _assert_restore_idle(config)
         if existing and (not config["db_path"].is_file() or not (config["data_dir"] / "instance.json").is_file()):
             raise OpsError("目标目录已有未绑定内容；请保留这些文件并选择空目录，不将其作为空实例覆盖")
         # A verified current package is retained in addition to the direct atomic restore point.
         recovery = create_backup(config, label="before-restore") if existing else None
+        _assert_restore_idle(config)
         rollback = _replace_data(config, stage)
         verified = inspect_database(config["db_path"], program["schema_version"])
         result = {**preview, "status": "restored", "verification": verified, "recovery_package": recovery["package"] if recovery else None, "restore_point": str(rollback), "credentials_note": "未包含或覆盖 .env/密钥；可选来源凭据需自行重新填写"}

@@ -11,7 +11,7 @@ import tarfile
 import tempfile
 import uuid
 from pathlib import Path
-from .backup import _replace_data, create_backup, inspect_database, unpack_verified
+from .backup import _attachment_paths, _replace_data, create_backup, inspect_database, sha256, unpack_verified
 from .runtime import OpsError, atomic_json, event_log, health, now, own_runtime, program_info, read_json, selected_program, start, stop
 
 
@@ -40,6 +40,36 @@ def database_fingerprint(path):
     finally:
         db.close()
 
+
+
+def data_fingerprint(config):
+    """Research state includes attachment identities and bytes, not only SQLite rows."""
+    digest = hashlib.sha256()
+    digest.update(b"world-insight-data-fingerprint-v2\0")
+    digest.update(database_fingerprint(config["db_path"]).encode())
+    try:
+        paths = _attachment_paths(config["data_dir"])
+        signatures = {}
+        for path in paths:
+            relative = path.relative_to(config["data_dir"]).as_posix()
+            before = path.stat()
+            content_hash = sha256(path)
+            after = path.stat()
+            signature = (before.st_ino, before.st_size, before.st_mtime_ns)
+            if signature != (after.st_ino, after.st_size, after.st_mtime_ns):
+                raise OpsError("附件在指纹计算期间发生变化，停止回退以保留现状")
+            signatures[path] = signature
+            digest.update(json.dumps([relative, content_hash], ensure_ascii=False, separators=(",", ":")).encode())
+            digest.update(b"\0")
+        if set(_attachment_paths(config["data_dir"])) != set(paths):
+            raise OpsError("附件集合在指纹计算期间变化，停止回退以保留现状")
+        for path, expected in signatures.items():
+            current = path.stat()
+            if (current.st_ino, current.st_size, current.st_mtime_ns) != expected:
+                raise OpsError("附件在指纹计算期间发生变化，停止回退以保留现状")
+    except OSError:
+        raise OpsError("无法读取附件完整内容或路径，未验证安全回退，保留现状")
+    return digest.hexdigest()
 
 def prepare_release(config, target):
     root = config["root"]
@@ -142,7 +172,7 @@ def update(config, target, dry_run=False):
         if any(validation["data"]["counts"].get(kind, 0) < count for kind, count in initial["counts"].items()):
             raise OpsError("升级后关键记录数量减少，拒绝切换")
         atomic_json(config["data_dir"] / "active-program.json", {"root": str(release), "commit": new_program["commit"], "selected_at": now(), "update_id": update_id})
-        record.update({"state": "complete", "completed_at": now(), "validation": validation, "post_update_fingerprint": database_fingerprint(config["db_path"])})
+        record.update({"state": "complete", "completed_at": now(), "validation": validation, "post_update_fingerprint": data_fingerprint(config), "post_update_fingerprint_version": 2})
         atomic_json(log_path, record)
         maintenance.unlink(missing_ok=True)
         event_log(config, "update_complete", update_id=update_id, commit=new_program["commit"])
@@ -185,17 +215,19 @@ def rollback(config, update_id):
         raise OpsError("该更新并非当前选定版本，拒绝跨版本盲目回退")
     # Always preserve the current state before deciding whether old data may be selected.
     preserved = create_backup(config, label="before-requested-rollback")
-    if database_fingerprint(config["db_path"]) != record.get("post_update_fingerprint"):
+    if record.get("post_update_fingerprint_version") != 2:
+        raise OpsError("旧更新记录没有附件基线指纹，已保存当前状态，无法证明回退不会覆盖新附件；停止自动回退")
+    if data_fingerprint(config) != record.get("post_update_fingerprint"):
         event_log(config, "rollback_refused_new_writes", update_id=update_id, current_backup=preserved["package"])
-        raise OpsError(f"更新后存在新写入，已保留当前备份 {preserved['package']}；不自动用旧快照覆盖。需单独核对兼容性或导出新记录后人工迁移")
+        raise OpsError(f"更新后存在新写入或附件变更，已保留当前备份 {preserved['package']}；不自动用旧快照覆盖。需单独核对兼容性或导出新记录后人工迁移")
     maintenance = config["data_dir"] / "maintenance.json"
     atomic_json(maintenance, {"operation": "rollback", "update_id": update_id, "at": now()})
     stop(config)
     # Recheck after stopping closes the race with a new write during the online backup.
-    if database_fingerprint(config["db_path"]) != record.get("post_update_fingerprint"):
+    if data_fingerprint(config) != record.get("post_update_fingerprint"):
         maintenance.unlink(missing_ok=True)
         start(config, open_browser=False)
-        raise OpsError("回退前出现新写入，已停止回退且保留现状")
+        raise OpsError("回退前出现新写入或附件变更，已停止回退且保留现状")
     old_root = Path(record["old_program"]["root"])
     recovery = _restore_exact(config, record["backup"], old_root)
     if record.get("prior_selection"):
