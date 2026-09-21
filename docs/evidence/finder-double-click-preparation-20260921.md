@@ -1,4 +1,4 @@
-# Finder 双击验收准备与权限阻塞
+# Finder 双击验收：准备、早期权限阻塞与最终通过
 
 日期：2026-09-21。目标是补验 AC-26 的 Finder 双击分支；没有用终端启动结果冒充双击。
 
@@ -12,10 +12,16 @@
 
 这些步骤使 Finder 双击的下一动作只需打开该目录并双击 `start.command`；不需要创建数据、输入凭据或改系统配置。
 
-## 当前阻塞
+## 早期权限阻塞（已解除）
 
-通过 Computer Use 请求 Finder 可访问状态时，macOS 返回“Accessibility and Screen Recording permissions are not granted”。第一次请求显示权限仍待完成，第二次复核仍明确未授予，因此没有执行双击，也没有把 shell、AppleScript 或其它自动化方式替代为 Finder 手势。
+早期通过 Computer Use 请求 Finder 可访问状态时，macOS 返回“Accessibility and Screen Recording permissions are not granted”。当时没有执行双击，也没有把 shell、AppleScript 或其它自动化方式替代为 Finder 手势。用户随后为ChatGPT开启辅助功能与屏幕录制权限并重启应用，Computer Use成功读取Finder，原权限阻塞解除。
 
-当前状态安全：验收实例已停止，端口8896没有由该实例运行的服务，隔离数据和副本均保留，未删除任何文件。用户授予 Codex/ChatGPT Computer Use 的辅助功能与屏幕录制权限后，可从这一状态继续；也可以由用户本人双击并把实际结果记录回本报告。
+## 最终 Finder 双击结果
 
-本报告只证明可复查的前置准备和权限阻塞。AC-26 在真实 Finder 双击、页面健康、重复双击复用同一 PID、再双击停止且数据保留全部实际观察前，继续保持阻塞。
+Computer Use在Finder中打开上述中文／空格目录并完成三次实际双击，原始字段见[结构化验收记录](finder-double-click-acceptance-20260921.json)：
+
+1. 双击`start.command`后，实例以PID `74719`启动；`/api/health`返回同一instance_id、schema 1和正确中文／空格程序根目录。Edge于`2026-09-21T15:39:38.259Z`自动打开`http://127.0.0.1:8896/`，正式“变化简报”显示本地资料库已连接，AI与付费默认关闭。
+2. 再次双击`start.command`后PID仍为`74719`，操作日志没有第二条started记录；`lsof`只显示这一PID监听`127.0.0.1:8896`，独立非阻塞锁检查确认`collector.lock`仍被运行实例占有。
+3. 双击`stop.command`后，操作日志于`2026-09-21T15:41:08.326113Z`记录同一PID停止；status返回`runtime=null`，8896无监听且`runtime.json`已移除。停止前后均为7来源、2采集任务、40材料、0议题，数据保留。
+
+当前验收实例已停止，隔离数据和副本均保留，未删除任何文件。Computer Use安全策略不允许读取终端窗口内容，因此以运行身份、健康接口、Edge页面、端口监听、采集锁、操作日志和只读记录数交叉验证结果。AC-26的双击、幂等、单采集器和停止保留数据分支现已通过。

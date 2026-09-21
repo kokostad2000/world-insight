@@ -1,0 +1,74 @@
+{
+  "evidence_type": "finder_double_click_acceptance",
+  "date": "2026-09-21",
+  "status": "passed",
+  "code_commit": "00e5a5ab8ac5466004199a3eeb2eaf0a1b38cc6a",
+  "program_root": "/private/tmp/世界洞察 Finder 验收 20260921",
+  "data_dir": "/private/tmp/world-insight-finder-ac26-data-20260921",
+  "port": 8896,
+  "instance_id": "83f7edf3-48bf-4327-8490-3419d5f081fd",
+  "finder_actions": [
+    {
+      "action": "double_click",
+      "target": "start.command",
+      "result": "started"
+    },
+    {
+      "action": "double_click",
+      "target": "start.command",
+      "result": "reused_existing_instance"
+    },
+    {
+      "action": "double_click",
+      "target": "stop.command",
+      "result": "stopped"
+    }
+  ],
+  "first_start": {
+    "started_at": "2026-09-21T15:39:36.748502Z",
+    "operation_log_at": "2026-09-21T15:39:36.755682Z",
+    "pid": 74719,
+    "health_status": "ok",
+    "version": "0.1.0",
+    "schema_version": 1,
+    "maintenance": false,
+    "browser": {
+      "name": "Microsoft Edge",
+      "tab_opened_at": "2026-09-21T15:39:38.259Z",
+      "title": "World Insight · 国际局势研究看板",
+      "url": "http://127.0.0.1:8896/",
+      "visible_page": "变化简报",
+      "local_database_connected": true,
+      "ai_and_paid_default_off_visible": true
+    }
+  },
+  "second_start": {
+    "pid_before": 74719,
+    "pid_after": 74719,
+    "additional_started_log_entries": 0,
+    "listener_count": 1,
+    "listener": "python3.11 pid 74719 TCP 127.0.0.1:8896",
+    "collector_lock": "held_by_running_instance"
+  },
+  "before_stop_counts": {
+    "sources": 7,
+    "collection_jobs": 2,
+    "evidence": 40,
+    "topics": 0
+  },
+  "normal_stop": {
+    "operation_log_at": "2026-09-21T15:41:08.326113Z",
+    "pid": 74719,
+    "runtime_file_exists": false,
+    "listener_count": 0,
+    "status_runtime": null
+  },
+  "after_stop_counts": {
+    "sources": 7,
+    "collection_jobs": 2,
+    "evidence": 40,
+    "topics": 0
+  },
+  "database_after_stop_sha256": "c50d6fc56d844c6a0b2ca8fac3671dbf333de64e9340fe72769090040fc6e00a",
+  "verification_boundary": "Computer Use performed the three Finder double-click actions. Terminal window content was unavailable to Computer Use by safety policy, so results were verified independently through runtime identity, loopback health, the Edge page, lsof, the collector lock, operation logs, and read-only record counts."
+}

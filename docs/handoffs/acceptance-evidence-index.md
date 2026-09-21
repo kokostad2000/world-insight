@@ -207,9 +207,9 @@
 ### AC-26 中文空格路径、Finder、幂等启停
 
 - 已运行测试：`test_ops_lifecycle.OperationsTests.test_script_and_command_entrypoints_in_chinese_space_path`（T:87）；`test_ops_lifecycle.OperationsTests.test_real_start_reuse_stop_and_restart_edit`（T:82）；`test_http.LocalHttpTests.test_browser_keep_alive_does_not_block_service_shutdown`（T:42）。
-- 真实操作：O/C 用 shell 执行 .command 和 .sh、重复 PID 复用；W 修复后浏览器仍打开，SIGTERM 0.15 秒退出 0，重启数据保留。
-- 尚缺/适用边界：Finder Computer Use 权限明确未获授予，原生双击未执行；mac-gui-paths.json 仅路径，不是 GUI 操作结果。不得用脚本或其他控制方式绕过权限替代。
-- 能否通过：**终端部分通过；Finder 分支阻塞**。
+- 真实操作：O/C 用 shell 执行 .command 和 .sh、重复 PID 复用；W 修复后浏览器仍打开，SIGTERM 0.15 秒退出 0，重启数据保留。后续[Finder最终双击](../evidence/finder-double-click-preparation-20260921.md)在提交`00e5a5a`中文／空格副本完成三次Finder手势：启动PID74719并由Edge自动打开页面，重复双击复用同一PID、单监听和独占采集锁，双击停止后无监听且7来源/2任务/40材料保留。
+- 适用边界：早期权限阻塞保留在历史报告；最终操作是在用户授予ChatGPT辅助功能与屏幕录制权限后通过Computer Use执行，未以shell或其它控制方式替代Finder手势。终端窗口本身按Computer Use安全策略不可读，结果用健康接口、页面、端口、锁、日志和记录数交叉验证。
+- 能否通过：**通过**。[结构化记录](../evidence/finder-double-click-acceptance-20260921.json)。
 
 ### AC-27 可选配置与联网失败隔离
 

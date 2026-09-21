@@ -38,7 +38,7 @@
 
 `tests/test_ops_lifecycle.py` 使用单独临时 Git 仓库、明确标记的虚构材料、中文/空格代码与数据路径、本机端口 8874/8875、禁用采集器。它实际启动 Mac 上 Python 服务、发 HTTP 请求、停止/重启、在线备份、空实例恢复后编辑、准备目标程序、执行故障迁移和健康检查失败回退。故障迁移/磁盘不足等是明确构造的故障条件，不是用户真实事故；真实进程与文件系统路径在该故障条件下运行。
 
-浏览器页面恢复编辑和 Finder 双击交互由主 Agent 单独执行并记录，不以这个 HTTP 演练替代。实际七天睡眠/恢复观察、真实来源运行和 M4 使用效率仍需真实试运行。
+浏览器页面恢复编辑和 Finder 双击交互已由主 Agent单独执行并记录，不以这个HTTP演练替代。实际七天观察、真实来源长期运行和M4使用效率仍需真实试运行。
 
 ## 本版运行交付与兼容性
 
@@ -48,8 +48,8 @@
 
 与最新平台严格引用检查合入后的最终记录为 `docs/evidence/ops-strict-integrity-tests.txt`：19 项通过（23.319 秒）。在保留前述 17 项实测基础上，备份/恢复还拒绝孤立材料别名、缺失议题/来源/说法/判断/变化和不存在的已读/判断版本引用；校验阶段不会迁移或写入原目标数据库。
 
-后续Mac与正式页面验收汇总见 `docs/evidence/browser-integration-round-two.md`，包含正常更新、故障迁移回退、回退后浏览器继续编辑、阅读状态、自动打开浏览器及附件核对；`docs/handoffs/mac-acceptance-remaining.md`记录SIGKILL/WAL恢复和被拒回退时生成的当前备份再次恢复。最终收取、恢复权限、容量与272项回归见 `docs/evidence/final-integration-20260921.md`；Finder双击的隔离副本和权限阻塞见 `docs/evidence/finder-double-click-preparation-20260921.md`。各报告锁定不同阶段代码，最终交付仍以 `docs/ACCEPTANCE.md` 当前状态为准。
+后续Mac与正式页面验收汇总见 `docs/evidence/browser-integration-round-two.md`，包含正常更新、故障迁移回退、回退后浏览器继续编辑、阅读状态、自动打开浏览器及附件核对；`docs/handoffs/mac-acceptance-remaining.md`记录SIGKILL/WAL恢复和被拒回退时生成的当前备份再次恢复。最终收取、恢复权限、容量与272项回归见 `docs/evidence/final-integration-20260921.md`；Finder双击的隔离副本、早期权限阻塞和最终通过见 `docs/evidence/finder-double-click-preparation-20260921.md`。各报告锁定不同阶段代码，最终交付仍以 `docs/ACCEPTANCE.md` 当前状态为准。
 
 恢复或备份可能依据已登记的来源保存权限与期限省略或清除历史正文；这不删除材料身份、标题、原链接、人工笔记或固定研究引用。恢复旧包也不会重置后来已经收紧的来源约束。具体版本变化与已知限制见 `docs/RELEASE_NOTES.md`。
 
-仍未测试 Finder 手势、实际断电、物理磁盘耗尽或真实OS睡眠唤醒；七天自然运行、结构抽查及效率观察属于M4，不用上述工程测试替代。
+仍未测试实际断电、物理磁盘耗尽或真实OS睡眠唤醒；Finder手势已通过。七天自然运行、结构抽查及效率观察属于M4，不用上述工程测试替代。
