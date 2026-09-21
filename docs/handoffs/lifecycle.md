@@ -45,3 +45,49 @@ JSON 导出包含选中目标、入向领域依赖及出向引用历史，源配
 2. root 负责 app 路由、后台有限批次调度、页面删除/回收站/保留设置。这里未修改共享文件，尚未进行 HTTP 或浏览器删除流程验证。
 3. 大库全历史扫描与删除备份耗时未做本模块专门基准。维护应作为后台任务，避免阻塞页面读请求。
 4. 备份路径为本机真实文件；root UI 应显示路径、内容省略说明和版本确认，不把路径显示当作浏览器下载成功。
+
+## 独立前端模块追加交付
+
+新增 `web/lifecycle.js`、`tests/test_web_lifecycle.py`；未修改 root 所有的 app.js / forms.js / CSS / server。
+
+主线接线：
+
+```js
+import {deleteButton,lifecyclePanel,installLifecycle} from './lifecycle.js';
+installLifecycle({openDialog,closeDialog,route,toast});
+// 常规记录按钮附近：deleteButton(collection, record)
+// settingsPage 改成 async 并拼入：await lifecyclePanel()
+// route 中设置分支使用 await settingsPage()
+```
+
+仅支持已实现删除的领域对象，不给 source 配置提供删除按钮。模块使用现有样式与宿主对话框；capture 阶段接管 lifecycle-* 按钮和 data-lifecycle-form，避免与通用编辑器重复触发。宿主关闭对话框与 Escape 会取消当前展示，不在请求结束时重新打开已取消流程。输入错误/409 保留表单；重新预览是明确操作。
+
+完整交互：查看目标标题/版本及当前或历史引用 → 生成并校验本地恢复包与权限过滤 JSON → 展示文件绝对位置及正文省略说明 → 填写原因并勾选确认 → 移入回收站。成功后进入 #/settings。恢复通过正常回收站表单，明确已有重审不自动清除。保留设置保存不会执行清理；查看到期记录后必须再次勾选确认才执行有限批次，未完全清理提供同一操作号的重试入口。API 保持同步原契约；后台维护由 root 接入。
+
+### 实际前端验证
+
+- `python3 -m unittest tests.test_web_lifecycle tests.test_web_semantics -q`：同步 main ad5e32f 后 9 项通过（本模块 4 项、已有前端 5 项）；`node --check web/lifecycle.js` 通过。
+- 4 个新增可执行 ES module 行为测试：所有外部标题/路径/原因转义；不支持的领域/已删除对象不输出删除按钮；未验证恢复包/未勾选/无原因拒绝提交；preview 与 prepare 不发送 commit；409 保留原因；最终 body 精确确认 targets/plan_hash/recovery_id；加载设置与保存设置不触发 run。此类为执行测试，不冒称浏览器验收。
+- 真实 Edge 浏览器，独立端口 8877，数据 `/private/tmp/world-insight-lifecycle-ui-qa`；临时 `_lifecycle_qa.html/.js` 只作为宿主，不提交。服务通过临时入口添加已实现 lifecycle handler，未改共享 server 文件；无来源采集器。
+- 实际走通人工材料 `f466550a-432b-4f2f-9f4a-d5f281be8a1b`：影响预览显示引用判断 → 生成真实 `deletion-407bd694-146b-47d8-b710-ce3f6ebc2307.wibackup/.json` → JSON 1 个历史版本正文因 export 权限省略 → 用户表单填原因/勾确认 → 进入回收站 v2 → 正常恢复 v3 → 刷新页面仍存在。引用判断 `cd837223-90c2-4635-aed2-befe40521aeb` 保持 needs_review。
+- 实际浏览器将每批上限改 1 并保存；提示明确“本次保存没有执行内容清理”。预览恰有 1 条过期 collector 候选；勾选并执行后显示已处理 1 条，剩余 0，候选 `4bca1eea-0332-4d0b-ad83-48a5eb444380` 在回收站 v3 且标“正文已到期”。数据库只读复核 content_expired=true，操作状态 complete。
+- 已检查真实对话框截图：文件长路径可换行，长影响列表滚动，原因/确认项可操作，底部操作按钮固定可见。临时页没有主线侧栏，本次不宣称完整主线页面布局已验收。
+
+下一步 root 接通完整 app 设置页与记录按钮后做正式浏览器集成回归。以上全部为明确隔离样本，不替代真实数据试运行。
+
+隔离浏览器 tab 已关闭；专属 PID 8477 已正常 SIGTERM 停止。临时宿主两文件已移除，数据库和恢复包保留作为验收记录。
+
+## 真实导出下载诊断（2026-09-21）
+
+root 在 IAB 8876 等待 download 事件超时后，独立 Edge 8877 验证标准 app 页面（ad5e32f + b3cbb63，没有临时页面、没有修改导出实现）。议题 `284786ce-bcc7-4489-987c-5999ea3b91f9` 点击“导出研究”后分别下载 JSON / Markdown。
+
+结果：Edge `waitForEvent('download', {timeoutMs:15000})` 同样未收到事件，但 JSON 实际下载成功；随后 Markdown 也实际下载成功。页面 console warn/error 为空。由文件落盘与内容验证可确认这是本次工具下载事件观测缺口，不能据超时判定应用失败，也不能单独归咎 IAB。未进一步证明下载事件未透传的内部原因。
+
+| 文件 | 实际大小 | 下载目录修改时间 UTC | SHA256 |
+|---|---:|---|---|
+| `/Users/zhanglike/Downloads/world-insight-284786ce-bcc7-4489-987c-5999ea3b91f9.json` | 17225 B | 2026-09-21T01:46:47.822652Z | ac0c2c42be31fd0255c47dc6f64db7f060c53ddee48bbe70c3713a4885c44703 |
+| `/Users/zhanglike/Downloads/world-insight-284786ce-bcc7-4489-987c-5999ea3b91f9.md` | 12565 B | 2026-09-21T01:47:22.067263Z | 7b13b4e7e7e0ce5b96224679178c2afadf822543b7b7caae463f1216596686ca |
+
+真实产物逐项比对：去掉每次重新生成的 generated_at 后，JSON 与同实例 `/api/exports?format=json` 完全相等；Markdown 仅归一化“生成时间”一行后，与 `/api/exports?format=markdown` content 逐字相等。材料当前版本 v3，判断和 citations 仍固定 `f466550a-432b-4f2f-9f4a-d5f281be8a1b@1`，所有历史受限摘录均省略，人工笔记与完整 histories 保留。比较脚本为 `/private/tmp/world-insight-export-verify.py`，实际输出 PASS。
+
+没有新增 export.js，也没有改动 app.js。两个隔离下载文件保留供 root 复核。Finder 自动化权限仍按主任务报告的未授予状态处理；本子任务未申请、修改或绕过权限，不把浏览器下载或命令行运行等同于 Finder 双击验收。

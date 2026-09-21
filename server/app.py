@@ -60,7 +60,7 @@ class Application:
         raise ApiError(404,'route_not_found','请求的功能不存在')
 
     def drain(self):
-        consumers = [getattr(mod,'on_event') for mod in (module('research'),module('activity')) if hasattr(mod,'on_event')]
+        consumers = [getattr(mod,'on_event') for mod in (module('knowledge'),module('research'),module('activity')) if hasattr(mod,'on_event')]
         if consumers:
             return self.store.drain(consumers)
         return 0

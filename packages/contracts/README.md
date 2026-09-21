@@ -58,7 +58,7 @@ Evidence `content_scope` is `excerpt` by default; only explicitly complete, lega
 
 ## Events
 
-`evidence.created`, `evidence.updated`, `evidence.corrected`, `event.created`, `claim.created`, `judgment.created`, `judgment.revised`, `research.needs_review`, `source.failed`, `source.recovered`. Payload includes topic_id, object/version ids, title, reason; evidence corrected includes evidence_id and old_version_ids. Root consumers always research then activity. A failure rolls back delivery side effects and remains retryable. Historical judgment snapshots are never rewritten by current review flags.
+`evidence.created`, `evidence.updated`, `evidence.corrected`, `event.created`, `claim.created`, `judgment.created`, `judgment.revised`, `research.needs_review`, `source.failed`, `source.recovered`. Payload includes topic_id, object/version ids, title, reason; evidence corrected includes evidence_id and old_version_ids. Root consumers always knowledge, research, then activity. A failure rolls back delivery side effects and remains retryable. Historical judgment snapshots are never rewritten by current review flags.
 
 ## P0 lifecycle amendment (root, 2026-09-21)
 
@@ -74,3 +74,14 @@ Evidence `content_scope` is `excerpt` by default; only explicitly complete, lega
 ## Explicit country background and source selection (2026-09-21)
 
 Topic.country_codes is an optional ISO3-style three-letter array, normalized uppercase. It never derives precise location or country from free-form regions. Topic bundle adds cached observations for explicitly selected countries and permitted source_ids, without rewriting observation ownership or period/version. Citation and export expansion includes the same fixed observation evidence. Empty selection only shows explicitly linked metrics. The topic form exposes source_ids checkboxes; an empty list uses the default enabled free scope defined by M2. Source retention_days is shown as an optional integer field.
+
+
+## Source policy and current content access (2026-09-21)
+
+M2 atomically publishes `source.policy_changed` only when registered `store/display/export` permissions narrow or a shorter content retention cap is introduced. Payload includes source_id/source_version, old_rights/new_rights, old_retention_days/new_retention_days and reason. M3 `knowledge.on_event` owns finding affected current/historical provenance and marking evidence/claim/event dependencies, then publishes `evidence.updated` with dependency_review for M4/M5. The producer and consumer must ship together; delivery is not acknowledged by an incomplete consumer set.
+
+Read policy intersects requested/current material grants with registered historical source/channel grants and the shortest content deadline. Evidence views retain declared `rights` and add `effective_rights`, `content_policy`, `content_expires_at`; restricted/expired content omits excerpt, translation and fingerprint even before background compaction. User-authored notes and fixed reference identity remain. Ordinary research export includes still-permitted, unexpired content and its expiry; recoverable snapshots have separate anti-revival sanitation rules. A request builds its policy context once inside the Store transaction; no stale global policy cache.
+
+M2 collector `knowledge.ingest(..., origin='collector')` may return a content-omitting receipt containing identity, version, duplicate status and metadata. This is a response boundary, not omission of permitted persisted material. Human writes and read APIs return policy-filtered records. Title similarity is candidate-only: user confirmation updates `origin_evidence_id` and immutable history, never merges events or asserts independent confirmation.
+
+WDI jobs snapshot the explicit topic country selection intersected with configured countries, include it in the scope signature, filter both request and response, and store automatic observations as shared global background. Existing human links are preserved; an empty country selection does not invent a country. Topic background respects selected country/source filters, while fixed research citations remain available independently of the current background view.
