@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest import mock
 from ops import backup, runtime
 from server.modules import knowledge, research
+from server.modules.knowledge import lifecycle
 from server.platform.store import Store
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -131,6 +132,92 @@ class BackupRetentionTests(unittest.TestCase):
         self.assert_redacted(target, row, old_ref, judgment)
         with self.assertRaises(runtime.OpsError):
             backup.sanitize_snapshot(self.config["db_path"], policy_source=self.config["db_path"])
+
+    def collector(self, suffix="candidate", notes=""):
+        with mock.patch.object(self.store, "now", return_value="2000-01-01T00:00:00Z"):
+            first = knowledge.ingest(self.store, {"source_id": "fixture-unlimited", "title": "[fixture] old unattended candidate", "url": "https://fixture.example/collector-" + suffix, "excerpt": "OLD_CANDIDATE_BODY_" + suffix, "translation": "OLD_CANDIDATE_TRANSLATION_" + suffix, "notes": notes, "rights": {"store": True, "display": True, "export": True}, "is_fixture": True}, origin="collector")
+        with mock.patch.object(self.store, "now", return_value="2000-01-02T00:00:00Z"):
+            latest = knowledge.ingest(self.store, {"source_id": "fixture-unlimited", "title": "[fixture] updated unattended candidate", "url": "https://fixture.example/collector-" + suffix, "excerpt": "NEW_CANDIDATE_BODY_" + suffix, "rights": {"store": True, "display": True, "export": True}, "is_fixture": True}, origin="collector")
+        return first, latest
+
+    def test_actual_due_candidate_policy_sanitizes_all_backup_versions(self):
+        first, latest = self.collector()
+        policy = lifecycle.evaluate_retention(self.store.snapshots(), self.store.all("source"), now="2026-09-21T00:00:00Z")
+        self.assertEqual(policy["actions"][0]["id"], first["id"])
+        self.assertEqual(policy["actions"][0]["action"], "candidate_expiry")
+        package = backup.create_backup(self.config)
+        content_policy = package["manifest"]["content_policy"]
+        self.assertEqual(content_policy["candidate_policy_status"], "available")
+        self.assertEqual(content_policy["candidate_actions"][0]["id"], first["id"])
+        self.assertEqual(content_policy["candidate_actions"][0]["action"], "candidate_expiry")
+        with zipfile.ZipFile(package["package"]) as archive:
+            archived = self.base / "candidate-package.sqlite"
+            archived.write_bytes(archive.read(backup.DB_NAME))
+        with sqlite3.connect(archived) as db:
+            rows = [json.loads(raw) for (raw,) in db.execute("SELECT data FROM versions WHERE kind='evidence' AND id=?", (first["id"],))]
+        self.assertEqual([row["version"] for row in rows], [1, 2])
+        self.assertTrue(all(row["content_expired"] and row["excerpt"] == "" and row["translation"] == "" for row in rows))
+        self.assertNotIn(b"OLD_CANDIDATE_BODY_candidate", archived.read_bytes())
+        self.assertNotIn(b"NEW_CANDIDATE_BODY_candidate", archived.read_bytes())
+        self.assertEqual(self.store.version(first["version_id"])["excerpt"], "OLD_CANDIDATE_BODY_candidate")
+        self.assertEqual(self.store.get("evidence", first["id"])["excerpt"], "NEW_CANDIDATE_BODY_candidate")
+
+    def test_actual_due_candidate_legacy_restore_and_refetch_cannot_revive_body(self):
+        first, latest = self.collector("legacy")
+        package = self.legacy_package(self.base / "legacy-candidate.wibackup")
+        destination = runtime.prepare_config(ROOT, self.base / "restored-candidate", 8875)
+        result = backup.restore_backup(destination, package, apply=True)
+        self.assertEqual(result["content_policy"]["candidate_actions"][0]["action"], "candidate_expiry")
+        restored = Store(destination["db_path"])
+        try:
+            snapshots = restored.history("evidence", first["id"])
+            self.assertTrue(all(row["content_expired"] and row["excerpt"] == "" and row["translation"] == "" for row in snapshots))
+            repeated = knowledge.ingest(restored, {"source_id": "fixture-unlimited", "title": "[fixture] same candidate fetched after restore", "url": "https://fixture.example/collector-legacy", "excerpt": "SHOULD_NOT_REVIVE", "rights": {"store": True, "display": True, "export": True}}, origin="collector")
+            self.assertEqual(repeated["id"], first["id"])
+            self.assertEqual(repeated["excerpt"], "")
+            self.assertTrue(repeated["content_expired"])
+            self.assertTrue(restored.integrity()["ok"])
+        finally:
+            restored.close()
+        self.assertNotIn(b"OLD_CANDIDATE_BODY_legacy", destination["db_path"].read_bytes())
+        self.assertNotIn(b"NEW_CANDIDATE_BODY_legacy", destination["db_path"].read_bytes())
+        self.assertNotIn(b"SHOULD_NOT_REVIVE", destination["db_path"].read_bytes())
+
+    def test_historical_manual_note_protects_unbounded_candidate_in_backup_and_restore(self):
+        first, current = self.collector("historical-note")
+        noted = self.store.update("evidence", first["id"], {"notes": "HISTORICAL_USER_NOTE_KEEP", "manually_touched": True}, current["version"])
+        # Explicit legacy fixture: an old editor cleared the latest flags. History still protects the work.
+        self.store.update("evidence", first["id"], {"notes": "", "manually_touched": False}, noted["version"])
+        assessment = lifecycle.evaluate_retention(self.store.snapshots(), self.store.all("source"))
+        self.assertNotIn(first["id"], [row["id"] for row in assessment["actions"]])
+        self.assertIn(first["id"], [row["id"] for row in assessment["protected"]])
+        result = backup.create_backup(self.config)
+        self.assertNotIn(first["id"], result["manifest"]["content_policy"]["omitted_evidence_ids"])
+        destination = runtime.prepare_config(ROOT, self.base / "restored-note", 8875)
+        backup.restore_backup(destination, result["package"], apply=True)
+        restored = Store(destination["db_path"])
+        try:
+            history = restored.history("evidence", first["id"])
+            self.assertEqual(history[0]["excerpt"], "OLD_CANDIDATE_BODY_historical-note")
+            self.assertEqual(history[-1]["excerpt"], "NEW_CANDIDATE_BODY_historical-note")
+            self.assertEqual(history[2]["notes"], "HISTORICAL_USER_NOTE_KEEP")
+            self.assertTrue(restored.integrity()["ok"])
+        finally:
+            restored.close()
+
+    def test_disabled_candidate_policy_preserves_unbounded_body(self):
+        first, _ = self.collector("disabled-policy")
+        lifecycle.update_settings(self.store, {"expected_version": 0, "candidate_retention_enabled": False})
+        result = backup.create_backup(self.config)
+        self.assertEqual(result["manifest"]["content_policy"]["candidate_actions"], [])
+        destination = runtime.prepare_config(ROOT, self.base / "restored-disabled-policy", 8875)
+        backup.restore_backup(destination, result["package"], apply=True)
+        restored = Store(destination["db_path"])
+        try:
+            self.assertEqual(restored.get("evidence", first["id"])["excerpt"], "NEW_CANDIDATE_BODY_disabled-policy")
+            self.assertFalse(lifecycle.get_settings(restored)["candidate_retention_enabled"])
+        finally:
+            restored.close()
 
     def test_invalid_source_term_blocks_backup_without_replacing_valid_package(self):
         self.material()
