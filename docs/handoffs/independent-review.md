@@ -127,3 +127,7 @@ topic.source_ids 未约束调度与 coverage。夹具议题仅选 `['source-fed'
 - 最小修复：应用恢复前检查 pending 启动与 maintenance；存在时明确阻止并指导先正常 stop 或按更新日志 recover。预览仍可保持只读；不要通过恢复入口猜测或强杀进程。加入真实中断 CLI 后子进程仍存活的回归。
 
 M7 其他已检查内容：备份成员路径/符号链接/哈希、当前及历史引用检查、原子替换恢复点、未绑定个人目录保护、已修改工作区更新保护、更新维护标记和程序数据配对流程。此追加审查没有重跑 M7 的整个既有 19 项测试，也没有测试尚未提交的 retention 净化。未发现其他可复现问题不等于证明所有故障情形均正确。
+
+### 最终衔接回归
+
+合入 root `c2c7b22` 后执行 `python3 -m unittest tests.test_sources tests.test_audit_regressions tests.test_core_domain tests.test_activity tests.test_platform tests.test_lifecycle_platform -v`：**79 tests / 1.127s / OK**，其中 sources 33 项。新增实际 knowledge 回调断言确认 RSS/WDI 证据的 ingest_origin 为 collector、manually_touched 为 false，重复抓取不改变 first_collected_at；生命周期平台用例验证阅读基线修复。该结果是隔离 SQLite 与模拟供应商响应验证，未新增真实上游请求。M7 上述两项修复尚未在此最终衔接回归中验证；完整删除预览/确认/API 及净化备份也不能仅由这些平台基础测试宣称验收。
