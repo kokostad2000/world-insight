@@ -391,6 +391,79 @@ class OperationsTests(unittest.TestCase):
             self.assertIn("版本引用", str(caught.exception))
         self.assertEqual(update.database_fingerprint(self.config["db_path"]), before)
 
+    def test_attachment_only_edits_and_new_paths_block_rollback(self):
+        self.start_fixture()
+        changed = update.update(self.config, self.good_commit)
+        attachment = self.data / "attachments" / "允许保存的夹具.txt"
+        original = attachment.read_text()
+        attachment.write_text("升级后仅修改附件，必须保留")
+        with self.assertRaises(runtime.OpsError) as caught:
+            update.rollback(self.config, changed["update_id"])
+        self.assertIn("附件变更", str(caught.exception))
+        self.assertEqual(attachment.read_text(), "升级后仅修改附件，必须保留")
+        self.assertEqual(runtime.health(8874)["version"], "0.1.1-fixture")
+        attachment.write_text(original)
+        additional = self.data / "attachments" / "升级后新增.pdf"
+        additional.write_bytes(b"EXPLICIT FIXTURE NEW ATTACHMENT")
+        with self.assertRaises(runtime.OpsError):
+            update.rollback(self.config, changed["update_id"])
+        self.assertEqual(additional.read_bytes(), b"EXPLICIT FIXTURE NEW ATTACHMENT")
+        self.assertEqual(runtime.health(8874)["version"], "0.1.1-fixture")
+
+    def test_attachment_change_during_stop_is_rechecked_before_replacement(self):
+        self.start_fixture()
+        changed = update.update(self.config, self.good_commit)
+        original_stop = update.stop
+        attachment = self.data / "attachments" / "允许保存的夹具.txt"
+        def stop_and_edit(config):
+            result = original_stop(config)
+            attachment.write_text("首次指纹之后、停止过程中新写入")
+            return result
+        with mock.patch.object(update, "stop", side_effect=stop_and_edit):
+            with self.assertRaises(runtime.OpsError) as caught:
+                update.rollback(self.config, changed["update_id"])
+        self.assertIn("回退前", str(caught.exception))
+        self.assertEqual(attachment.read_text(), "首次指纹之后、停止过程中新写入")
+        self.assertEqual(runtime.health(8874)["version"], "0.1.1-fixture")
+
+    def test_unreadable_attachment_fingerprint_blocks_rollback(self):
+        self.start_fixture()
+        changed = update.update(self.config, self.good_commit)
+        with mock.patch.object(update, "sha256", side_effect=OSError("fixture unreadable")):
+            with self.assertRaises(runtime.OpsError) as caught:
+                update.rollback(self.config, changed["update_id"])
+        self.assertIn("无法读取附件", str(caught.exception))
+        self.assertEqual(runtime.health(8874)["version"], "0.1.1-fixture")
+        self.assertTrue((self.data / "attachments" / "允许保存的夹具.txt").exists())
+
+    def test_restore_rejects_maintenance_and_actual_pending_start(self):
+        self.start_fixture()
+        package = backup.create_backup(self.config)["package"]
+        runtime.stop(self.config)
+        before = update.database_fingerprint(self.config["db_path"])
+        runtime.atomic_json(self.data / "maintenance.json", {"operation": "update", "update_id": "explicit-fixture-interruption"})
+        try:
+            with self.assertRaises(runtime.OpsError) as caught:
+                backup.restore_backup(self.config, package, apply=True, replace=True)
+            self.assertIn("--recover", str(caught.exception))
+            self.assertEqual(update.database_fingerprint(self.config["db_path"]), before)
+        finally:
+            (self.data / "maintenance.json").unlink()
+        release, _ = update.prepare_release(self.config, self.interrupt_commit)
+        launcher = subprocess.Popen([sys.executable, "-m", "ops.cli", "start", "--root", str(release), "--data-dir", str(self.data), "--port", "8874", "--no-browser", "--no-scheduler"], cwd=release, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        deadline = time.monotonic() + 10
+        while not runtime.pending_runtime(self.config) and launcher.poll() is None and time.monotonic() < deadline:
+            time.sleep(.1)
+        try:
+            self.assertIsNotNone(runtime.pending_runtime(self.config))
+            with self.assertRaises(runtime.OpsError) as caught:
+                backup.restore_backup(self.config, package, apply=True, replace=True)
+            self.assertIn("stop.sh", str(caught.exception))
+            self.assertEqual(update.database_fingerprint(self.config["db_path"]), before)
+        finally:
+            runtime.stop(self.config)
+            launcher.communicate(timeout=8)
+
     def test_secret_config_not_echoed_and_missing_dependency_blocks(self):
         env = self.repo / ".env"
         old = env.read_text() if env.exists() else None
