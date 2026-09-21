@@ -76,3 +76,18 @@ installLifecycle({openDialog,closeDialog,route,toast});
 下一步 root 接通完整 app 设置页与记录按钮后做正式浏览器集成回归。以上全部为明确隔离样本，不替代真实数据试运行。
 
 隔离浏览器 tab 已关闭；专属 PID 8477 已正常 SIGTERM 停止。临时宿主两文件已移除，数据库和恢复包保留作为验收记录。
+
+## 真实导出下载诊断（2026-09-21）
+
+root 在 IAB 8876 等待 download 事件超时后，独立 Edge 8877 验证标准 app 页面（ad5e32f + b3cbb63，没有临时页面、没有修改导出实现）。议题 `284786ce-bcc7-4489-987c-5999ea3b91f9` 点击“导出研究”后分别下载 JSON / Markdown。
+
+结果：Edge `waitForEvent('download', {timeoutMs:15000})` 同样未收到事件，但 JSON 实际下载成功；随后 Markdown 也实际下载成功。页面 console warn/error 为空。由文件落盘与内容验证可确认这是本次工具下载事件观测缺口，不能据超时判定应用失败，也不能单独归咎 IAB。未进一步证明下载事件未透传的内部原因。
+
+| 文件 | 实际大小 | 下载目录修改时间 UTC | SHA256 |
+|---|---:|---|---|
+| `/Users/zhanglike/Downloads/world-insight-284786ce-bcc7-4489-987c-5999ea3b91f9.json` | 17225 B | 2026-09-21T01:46:47.822652Z | ac0c2c42be31fd0255c47dc6f64db7f060c53ddee48bbe70c3713a4885c44703 |
+| `/Users/zhanglike/Downloads/world-insight-284786ce-bcc7-4489-987c-5999ea3b91f9.md` | 12565 B | 2026-09-21T01:47:22.067263Z | 7b13b4e7e7e0ce5b96224679178c2afadf822543b7b7caae463f1216596686ca |
+
+真实产物逐项比对：去掉每次重新生成的 generated_at 后，JSON 与同实例 `/api/exports?format=json` 完全相等；Markdown 仅归一化“生成时间”一行后，与 `/api/exports?format=markdown` content 逐字相等。材料当前版本 v3，判断和 citations 仍固定 `f466550a-432b-4f2f-9f4a-d5f281be8a1b@1`，所有历史受限摘录均省略，人工笔记与完整 histories 保留。比较脚本为 `/private/tmp/world-insight-export-verify.py`，实际输出 PASS。
+
+没有新增 export.js，也没有改动 app.js。两个隔离下载文件保留供 root 复核。Finder 自动化权限仍按主任务报告的未授予状态处理；本子任务未申请、修改或绕过权限，不把浏览器下载或命令行运行等同于 Finder 双击验收。
