@@ -44,6 +44,12 @@
 
 初版运行契约：程序 `0.1.0`、数据库 schema `1`，支持 CPython 3.11.x/macOS。更新器接受明确本地目标 ref，并由目标程序申明数据库最高兼容版本；不假定未来代码可读取较新数据库。当前零第三方 Python 依赖，若未来目标锁文件出现未准备依赖则在准备阶段拒绝更新。
 
-本轮实际环境与结果：`docs/evidence/ops-environment.json`、`docs/evidence/ops-lifecycle.txt`。17 项 Mac 运维用例通过；其中运行状态、HTTP、SQLite、文件权限和进程中断是真实执行，研究内容及错误场景为显式夹具。未测试 Finder 手势、实际断电、物理磁盘耗尽或七天真实睡眠周期，不用这些测试替代对应真实观察。
+早期17项批次的实际环境与结果：`docs/evidence/ops-environment.json`、`docs/evidence/ops-lifecycle.txt`。其中运行状态、HTTP、SQLite、文件权限和进程中断是真实执行，研究内容及错误场景为显式夹具。这不是当前交付 HEAD 的全套回归结论。
 
 与最新平台严格引用检查合入后的最终记录为 `docs/evidence/ops-strict-integrity-tests.txt`：19 项通过（23.319 秒）。在保留前述 17 项实测基础上，备份/恢复还拒绝孤立材料别名、缺失议题/来源/说法/判断/变化和不存在的已读/判断版本引用；校验阶段不会迁移或写入原目标数据库。
+
+后续Mac与正式页面验收汇总见 `docs/evidence/browser-integration-round-two.md`，包含正常更新、故障迁移回退、回退后浏览器继续编辑、阅读状态、自动打开浏览器及附件核对；`docs/handoffs/mac-acceptance-remaining.md`记录SIGKILL/WAL恢复和被拒回退时生成的当前备份再次恢复。各报告锁定不同阶段代码，最终交付仍以 `docs/ACCEPTANCE.md` 当前状态和最终全套回归为准。
+
+恢复或备份可能依据已登记的来源保存权限与期限省略或清除历史正文；这不删除材料身份、标题、原链接、人工笔记或固定研究引用。恢复旧包也不会重置后来已经收紧的来源约束。具体版本变化与已知限制见 `docs/RELEASE_NOTES.md`。
+
+仍未测试 Finder 手势、实际断电、物理磁盘耗尽或真实OS睡眠唤醒；七天自然运行、结构抽查及效率观察属于M4，不用上述工程测试替代。

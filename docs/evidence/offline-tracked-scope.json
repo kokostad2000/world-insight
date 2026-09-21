@@ -1,0 +1,29 @@
+{
+  "recorded_at": "2026-09-21T03:24:00Z",
+  "environment": "macOS 15.6.1 arm64; local formal server on 127.0.0.1:8880 with --no-scheduler",
+  "git_fetch_failure_evidence": "mac-update-network-failure.json",
+  "browser_check": {
+    "page": "#/map",
+    "local_database": "/private/tmp/world-insight-gkg-live-scheduler-20260921/world-insight.sqlite",
+    "result": "formal page rendered after reload without scheduler or upstream requests",
+    "visible_signals": [
+      "地图与国家背景",
+      "本地资料库已连接",
+      "0 条已登记事件 · 不代表全球完整覆盖",
+      "Natural Earth static country map",
+      "只有真实登记的位置才会显示"
+    ]
+  },
+  "tracked_scope_check": {
+    "tracked_runtime_secrets_or_data_matches": 0,
+    "private_key_pattern_matches": 0,
+    "ignored_examples": [
+      ".env",
+      "data/world-insight.sqlite",
+      "data/attachments/x",
+      "backups/x.wibackup"
+    ],
+    "note": "git ls-files and git check-ignore were evaluated on the current local main worktree; this is not a claim about untracked files outside the repository."
+  },
+  "boundaries": "The GitHub fetch failure used an unreachable per-command proxy, not a whole-computer network disconnect. The browser check proves local static/API history remains usable with the scheduler off; it does not prove every browser asset under a physical network outage."
+}

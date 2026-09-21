@@ -6,9 +6,15 @@
 
 ## 首次准备（macOS）
 
-需要 CPython **3.11.x**、Git，以及支持 ES Modules/Fetch/SVG 的 Safari 或 Chrome。无需 Node、Docker 或第三方 Python 包。系统 curl 用于免费源联网；缺失时人工研究与历史阅读仍可运行。已核对的运行基线见 `requirements.lock`；当前平台验收记录见 `docs/evidence/ops-*`。
+需要 CPython **3.11.x**、Git，以及支持 ES Modules/Fetch/SVG 的 Safari 或 Chrome。无需 Node、Docker 或第三方 Python 包。系统 curl 用于免费源联网；缺失时人工研究与历史阅读仍可运行。已核对的运行基线见 `requirements.lock`；实际Mac与浏览器证据汇总见 [本地验收记录](docs/evidence/browser-integration-round-two.md)，发布状态见 [版本说明](docs/RELEASE_NOTES.md)。
 
-下载完整代码后，在终端进入项目目录（包含中文或空格的路径也可以）：
+当前完整代码位于本机 `/Users/zhanglike/Desktop/world-insight`。GitHub 私有仓库尚未推送，**现在不能从远端下载到这份实现**。可直接使用当前目录；需要独立的代码副本时，先核对 `git status` 和 `git log -1`，以下命令只复制已提交的 main，不包含未提交工作或研究数据：
+
+```bash
+git clone --local --no-hardlinks --branch main "/Users/zhanglike/Desktop/world-insight" "/你选择的新目录/world-insight"
+```
+
+在终端进入取得的完整代码目录（包含中文或空格的路径也可以）：
 
 ```bash
 cd "/你的目录/world-insight"
@@ -107,3 +113,8 @@ python3.11 --version
 回退前保存当前状态并检查更新后是否产生新写入。存在新记录或修订时拒绝用旧快照覆盖，保留当前备份，需另行核对兼容性或迁移新记录。程序和数据库兼容性不能只靠“退代码”解决。
 
 详细目录、故障处理、维护状态及验证范围见 [本地运行说明](docs/LOCAL_OPERATIONS.md)。
+
+
+## 七天试运行入口
+
+从页面“议题档案 → 新建议题 → 从研究模板开始”选择研究问题，再填自己的范围、关键词、国家与来源。模板不预填国际事件结论，也不会自动启动七天计时。按 [七天试运行记录](docs/TRIAL.md) 登记五个真实议题的固定ID、数据目录、实际开始时间和每日证据；当前仍待观察。完整工程验收及真实Mac睡眠/Finder步骤尚有缺口时，保持该状态，不能用隔离样本填充真实运行日志。
