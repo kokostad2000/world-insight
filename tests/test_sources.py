@@ -426,9 +426,14 @@ class SourceTests(unittest.TestCase):
         self.assertEqual(scheduler.tick(False)['state'], 'complete')
         first = self.store.all('evidence')[0]
         self.assertEqual(first['version'], 1)
+        self.assertEqual(first['ingest_origin'], 'collector')
+        self.assertEqual(first['first_collected_at'], self.clock)
+        self.assertFalse(first['manually_touched'])
+        self.clock = '2026-09-20T15:01:00.000000Z'
         sources.enqueue(self.store, 'source-fed')
         scheduler.tick(False)
         self.assertEqual(self.store.all('evidence')[0]['version'], 1)
+        self.assertEqual(self.store.all('evidence')[0]['first_collected_at'], first['first_collected_at'])
         payload = [{'page': 1, 'pages': 1, 'lastupdated': '2026-07-13'}, [
             {'indicator': {'id': 'SP.POP.TOTL'}, 'countryiso3code': 'CHN', 'date': '2025', 'value': 100},
             {'indicator': {'id': 'SP.POP.TOTL'}, 'countryiso3code': 'CHN', 'date': '2024', 'value': None}]]
@@ -438,6 +443,7 @@ class SourceTests(unittest.TestCase):
         self.assertEqual(result['state'], 'complete', result)
         self.assertEqual(len(self.store.all('observation')), 2)
         self.assertEqual(len(self.store.all('evidence')), 3)
+        self.assertTrue(all(e['ingest_origin'] == 'collector' for e in self.store.all('evidence')))
         payload[1][0]['value'] = 105
         sources.enqueue(self.store, 'source-world-bank')
         actual.tick(False)
@@ -477,7 +483,7 @@ class SourceTests(unittest.TestCase):
         original = knowledge.ingest
         def ingest(store, data, *, origin):
             calls.append(origin)
-            return original(store, data)
+            return original(store, data, origin=origin)
         with patch.object(knowledge, 'ingest', ingest):
             job = sources.Scheduler(self.store, fetcher=lambda *_: adapters.Response(200, RSS)).tick(False)
         self.assertEqual(job['state'], 'complete')

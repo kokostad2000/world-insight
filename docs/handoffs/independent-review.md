@@ -103,3 +103,31 @@ topic.source_ids 未约束调度与 coverage。夹具议题仅选 `['source-fed'
 已读平台 Store/outbox/HTTP 本地访问及维护边界、knowledge CRUD/去重/指标/纠错/引用、research 历史/导出/纠错传播、activity 变化/阅读/简报。事务中的 outbox 消费与确认、重复事件总体结构正确；未发现跨模块擅自写其他实体的新增问题。
 
 未执行浏览器 E2E、真实 OS 睡眠、七日观察；未审尚未合入的 M7 更新/恢复代码；未把自己实现的来源模块计作独立审查；没有重跑 root 后续修复。本报告不代表项目已完成所有验收。
+
+## 后续复核与 M7 追加审查（2026-09-21）
+
+以下是独立的后续检查，不能倒填为上述 `5e91a85` 基线已经正确。
+
+- root 的 `37bd113` 修复已在 sources worktree 合入后复核。`python3 -m unittest tests.test_audit_regressions tests.test_core_domain tests.test_activity tests.test_platform -v`：41 项通过，0.183 秒。九条 audit regression 覆盖时区范围/已读、反证与访问限制简报传播、translation 存储、撤回状态、摘录误归并、event.updated、指标多议题和引用完整性。阅读初始基线及生命周期删除仍由 root 继续处理，未据此宣称通过。
+- M7 固定审查版本为 `0e4bba7`，通过 `git archive` 导出至独立 `/private/tmp` 副本，只读生产代码。尚在开发的来源期限净化补丁不在此固定版本范围内，不将已知旧版本缺失重复算作新发现。
+
+### M7-1 / P1：回退新写入保护遗漏附件
+
+- 位置：`ops/update.py:30-39` 仅对 records、versions 和 schema 计算数据库指纹；回退比较在 188、195 行，覆盖发生于 200 行 `_restore_exact`。
+- 最小复现：建立临时 Store、身份和附件 `fixture.txt=fixture-old`，创建真实更新前备份与匹配的成功更新记录；不改数据库，只把附件改为 `fixture-new-content-after-update` 并新增 `new-after-update.txt`；调用 rollback。
+- 实际输出：`database_fingerprint_unchanged=true, rollback_status=rolled_back, active_attachment_content=fixture-old, new_active_attachment_exists=false, current_backup_preserved=true`。
+- 边界：SQLite 快照、备份校验、文件替换与恢复均真实执行；启动/停止/HTTP 健康检查使用 mock 接缝。因此该项是备份/恢复行为复现，不声称完整 Mac 更新 E2E。现状仍有 before-requested-rollback 包保留新附件，问题是活动资料被旧附件覆盖而未拒绝新写入，不是宣称所有恢复副本永久丢失。
+- 最小修复：成功更新和回退保护使用数据库加附件清单/内容摘要的状态指纹；停止后再次检查。在附件新增、改动、删除任一情况下拒绝自动用旧快照覆盖，并保留当前备份。
+
+### M7-2 / P1：恢复没有阻止尚在启动的进程
+
+- 位置：`ops/backup.py:258-264` 只检查 own_runtime，未检查 pending_runtime 和维护状态，即开始替换数据库。
+- 实际 Mac 复现：在固定代码的临时副本中，仅为夹具给迁移入口插入明确 30 秒暂停；通过真实 ops CLI、端口 8873、`--no-scheduler --no-browser` 启动。等到暂停标记及 pending-start.json 后，只中断夹具 CLI；子进程继续存活且尚无 runtime.json。调用真实 restore_backup(apply=True,replace=True)。
+- 实际输出：`pending_pid_alive_before_restore=true, runtime_json_exists=false, restore_status=restored, pending_pid_alive_after_restore=true`。恢复替换了仍被启动中进程打开的数据库。随后 finally 调用 runtime.stop，返回 `stopped`；夹具进程已清理。未请求免费源、未改用户数据或机器睡眠状态。
+- 最小修复：应用恢复前检查 pending 启动与 maintenance；存在时明确阻止并指导先正常 stop 或按更新日志 recover。预览仍可保持只读；不要通过恢复入口猜测或强杀进程。加入真实中断 CLI 后子进程仍存活的回归。
+
+M7 其他已检查内容：备份成员路径/符号链接/哈希、当前及历史引用检查、原子替换恢复点、未绑定个人目录保护、已修改工作区更新保护、更新维护标记和程序数据配对流程。此追加审查没有重跑 M7 的整个既有 19 项测试，也没有测试尚未提交的 retention 净化。未发现其他可复现问题不等于证明所有故障情形均正确。
+
+### 最终衔接回归
+
+合入 root `c2c7b22` 后执行 `python3 -m unittest tests.test_sources tests.test_audit_regressions tests.test_core_domain tests.test_activity tests.test_platform tests.test_lifecycle_platform -v`：**79 tests / 1.127s / OK**，其中 sources 33 项。新增实际 knowledge 回调断言确认 RSS/WDI 证据的 ingest_origin 为 collector、manually_touched 为 false，重复抓取不改变 first_collected_at；生命周期平台用例验证阅读基线修复。该结果是隔离 SQLite 与模拟供应商响应验证，未新增真实上游请求。M7 上述两项修复尚未在此最终衔接回归中验证；完整删除预览/确认/API 及净化备份也不能仅由这些平台基础测试宣称验收。
