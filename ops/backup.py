@@ -96,18 +96,16 @@ def _attachment_paths(data_dir):
 
 
 
-def _source_limits(connection):
-    """Remember any explicit finite policy in source history; absence never invents a term."""
-    limits = {}
+def _source_history(connection):
+    """Read policy history without assuming every version applies to every material."""
+    history = {}
     for source_id, raw in connection.execute("SELECT id,data FROM versions WHERE kind='source'"):
         source = json.loads(raw)
         days = source.get("retention_days")
-        if days is None:
-            continue
-        if type(days) is not int or not 1 <= days <= 36500:
+        if days is not None and (type(days) is not int or not 1 <= days <= 36500):
             raise OpsError("来源保留期限无效，拒绝生成可能保留过期正文的快照")
-        limits[source_id] = min(days, limits.get(source_id, days))
-    return limits
+        history.setdefault(source_id, []).append(source)
+    return history
 
 
 def sanitize_snapshot(path, policy_source=None, observed_at=None):
@@ -123,25 +121,24 @@ def sanitize_snapshot(path, policy_source=None, observed_at=None):
         raise OpsError("净化目标必须是独立快照，不能在原始研究数据库上运行")
     db = sqlite3.connect(str(path))
     try:
+        from server.modules.knowledge.policy_period import first_saved_at, material_history, material_source_ids, retention_cap
         # Keep no old content in rollback/WAL/freelist pages after sanitization.
         db.execute("PRAGMA journal_mode=DELETE")
         db.execute("PRAGMA secure_delete=ON")
-        limits = _source_limits(db)
-        external_limits = {}
+        histories_by_source = _source_history(db)
+        external_history = {}
         if policy_source is not None and Path(policy_source).is_file():
             external = sqlite3.connect(f"file:{Path(policy_source)}?mode=ro", uri=True)
             try:
-                external_limits = _source_limits(external)
+                external_history = _source_history(external)
             finally:
                 external.close()
-            for source_id, days in external_limits.items():
-                limits[source_id] = min(days, limits.get(source_id, days))
+            for source_id, history in external_history.items():
+                histories_by_source.setdefault(source_id, []).extend(history)
         rows = [(kind, record_id, version, json.loads(raw)) for kind, record_id, version, raw in db.execute("SELECT kind,id,version,data FROM versions")]
         snapshots = [{"kind": kind, "record": record} for kind, _, _, record in rows]
         sources = [json.loads(raw) for (raw,) in db.execute("SELECT data FROM records WHERE kind='source'")]
-        for source in sources:
-            if source["id"] in limits:
-                source["retention_days"] = limits[source["id"]]
+        sources.extend(source for history in external_history.values() for source in history)
         policies = [json.loads(raw) for (raw,) in db.execute("SELECT data FROM records WHERE kind='retention_settings' ORDER BY updated_at")]
         settings = policies[-1] if policies else None
         decisions, candidate_status = {}, "available"
@@ -156,16 +153,22 @@ def sanitize_snapshot(path, policy_source=None, observed_at=None):
             for action in assessment.get("actions", []):
                 if action.get("kind") == "evidence" and action.get("redact_content"):
                     decisions[action["id"]] = action
-        affected, source_ids_by_evidence = set(), {}
+        affected, source_ids_by_evidence, limits, histories_by_evidence = set(), {}, {}, {}
         for kind, record_id, _, record in rows:
-            if kind != "evidence":
-                continue
-            source_ids = {record.get("source_id")} | {channel.get("source_id") for channel in record.get("channels", []) if isinstance(channel, dict)}
-            bounded = sorted(source_id for source_id in source_ids if source_id in limits)
+            if kind == "evidence":
+                histories_by_evidence.setdefault(record_id, []).append(record)
+        for record_id, history in histories_by_evidence.items():
+            provenance = material_history(record_id, histories_by_evidence)
+            saved_at = first_saved_at(provenance)
+            caps = {source_id: retention_cap(histories_by_source[source_id], saved_at)
+                    for source_id in material_source_ids(provenance) if source_id in histories_by_source}
+            bounded = sorted(source_id for source_id, cap in caps.items() if cap is not None)
             if bounded:
                 affected.add(record_id)
                 source_ids_by_evidence.setdefault(record_id, set()).update(bounded)
-            if record_id in decisions or record.get("content_expired"):
+                for source_id in bounded:
+                    limits[source_id] = min(caps[source_id], limits.get(source_id, caps[source_id]))
+            if record_id in decisions or any(record.get("content_expired") for record in history):
                 affected.add(record_id)
         changed_versions, content_versions = 0, 0
         db.execute("BEGIN IMMEDIATE")

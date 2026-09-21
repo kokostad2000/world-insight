@@ -236,13 +236,16 @@ class CoreDomainTests(unittest.TestCase):
         self.assertEqual(counts["independence_unconfirmed_count"], 0)
 
     def test_export_filters_rights_and_secrets(self):
-        self.store.create("source", {"name": "夹具来源", "api_key": "DO_NOT_EXPORT", "rights": {}}, record_id="secret-source")
-        evidence = self.evidence(source_id="secret-source", rights={"store": True, "display": True, "export": False})
+        marker = "STORED_BUT_NOT_DISPLAYABLE_FIXTURE_7741"
+        self.store.create("source", {"name": "夹具来源", "api_key": "DO_NOT_EXPORT", "rights": {"store": True, "display": False, "export": False}}, record_id="secret-source")
+        evidence = self.evidence(source_id="secret-source", excerpt=marker, rights={"store": True, "display": True, "export": False})
+        self.assertEqual(evidence["excerpt"], "")
+        self.assertEqual(self.store.get("evidence", evidence["id"])["excerpt"], marker)
         self.judgment(evidence)
         exported = self.call("GET", "exports", query={"topic_id": self.topic["id"]})
         serialized = json.dumps(exported, ensure_ascii=False)
         self.assertNotIn("DO_NOT_EXPORT", serialized)
-        self.assertNotIn(evidence["excerpt"], serialized)
+        self.assertNotIn(marker, serialized)
         self.assertIn("content_restricted", serialized)
 
     def test_restriction_propagates_without_erasing_metadata(self):
