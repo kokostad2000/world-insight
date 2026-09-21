@@ -196,7 +196,8 @@ class SourceTests(unittest.TestCase):
     def test_seed_is_local_idempotent_preserves_config_and_disables_paid(self):
         self.update_source('source-fed', budget_daily=2)
         sources.seed_sources(self.store)
-        self.assertEqual(len(self.store.all('source')), 6)
+        self.assertEqual(len(self.store.all('source')), 7)
+        self.assertFalse(self.store.get('source', 'source-gdelt-gkg')['enabled'])
         self.assertEqual(self.store.get('source', 'source-fed')['budget_daily'], 2)
         self.assertFalse(self.store.get('source', 'source-paid')['enabled'])
         self.assertFalse(self.store.get('source', 'source-ai')['enabled'])
