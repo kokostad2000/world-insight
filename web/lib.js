@@ -53,3 +53,12 @@ export async function api(path, options = {}) {
   return data;
 }
 export function csvOptions(values) { return values.map(value => [value,label(value)]); }
+
+export function sourcePolicyPatch(data, previous, reviewed = false) {
+  const result = {...data};
+  if (previous && !reviewed) {
+    if (['fetch','store','display','export','ai'].every(key => data.rights?.[key] === previous.rights?.[key])) delete result.rights;
+    if ((data.retention_days ?? null) === (previous.retention_days ?? null)) delete result.retention_days;
+  }
+  return result;
+}

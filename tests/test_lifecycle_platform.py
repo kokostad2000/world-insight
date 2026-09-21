@@ -56,6 +56,26 @@ class LifecyclePlatformTests(unittest.TestCase):
         reingested = self.evidence(excerpt=marker)
         self.assertEqual(reingested['excerpt'], '')
 
+    def test_expiry_erases_legacy_channel_body_from_every_version_and_disk(self):
+        marker = 'LEGACY_CHANNEL_LICENSE_BODY_9381' * 100
+        first = self.evidence()
+        legacy = self.store.update('evidence', first['id'], {'channels': [
+            {'url': 'https://example.org/legacy', 'source_id': 'manual', 'title': '原始渠道标题',
+             'excerpt': marker, 'translation': marker, 'content_fingerprint': marker,
+             'notes': '渠道人工备注保留'}]}, first['version'])
+        self.store.policy_snapshots([first['id']])
+        knowledge.expire_content(self.store, first['id'], legacy['version'], '明确许可到期', 'expire-legacy-channel')
+        self.store.compact()
+        for version in self.store.history('evidence', first['id']):
+            for channel in version.get('channels', []):
+                self.assertNotIn(marker, str(channel))
+                if channel.get('url') == 'https://example.org/legacy':
+                    self.assertEqual(channel['notes'], '渠道人工备注保留')
+                    self.assertEqual(channel['title'], '原始渠道标题')
+        for path in Path(self.tmp.name).glob('world-insight.sqlite*'):
+            self.assertNotIn(marker.encode(), path.read_bytes())
+        self.assertNotIn(marker, str(self.store.policy_snapshots([first['id']])))
+
     def test_trash_keeps_old_reference_blocks_new_and_restore_keeps_review(self):
         evidence = self.evidence()
         ref = evidence['id']+'@1'
