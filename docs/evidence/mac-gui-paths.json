@@ -1,0 +1,8 @@
+{
+  "base": "/private/tmp/World Insight 中文 QA-znmxrdsi",
+  "code": "/private/tmp/World Insight 中文 QA-znmxrdsi/全新代码 repo",
+  "original_data": "/private/tmp/World Insight 中文 QA-znmxrdsi/初始资料 Data",
+  "restored_data": "/private/tmp/World Insight 中文 QA-znmxrdsi/恢复资料 Data",
+  "port": 8876,
+  "backup": "/private/tmp/world-insight-root-real-20260921.wibackup"
+}

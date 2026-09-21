@@ -33,7 +33,7 @@ def module(name):
 class Application:
     def __init__(self, config, store, identity):
         self.config,self.store,self.identity = config,store,identity
-        self.modules = [module(n) for n in ('knowledge','research','sources','activity')]
+        self.modules = [module(n) for n in ('knowledge.lifecycle','knowledge','research','sources','activity')]
 
     def dispatch(self, method, path, body, query):
         segments = [s for s in path.split('/') if s][1:]
@@ -64,6 +64,24 @@ class Application:
         if consumers:
             return self.store.drain(consumers)
         return 0
+
+    def maintain(self):
+        """One bounded retention batch, with a persistent deadline across restarts."""
+        if (self.store.data_dir/'maintenance.json').exists():
+            return None
+        key='evidence-retention'
+        try:checkpoint=self.store.get('maintenance_checkpoint',key)
+        except ApiError as error:
+            if error.status!=404:raise
+            checkpoint=None
+        now=time.time()
+        if checkpoint and checkpoint.get('next_check_at',0)>now:return None
+        result=module('knowledge.lifecycle').run_retention(self.store,{'operation_id':f'scheduled-{int(now//300)}'})
+        data={'last_check_at':self.store.now(),'next_check_at':now+(300 if result.get('remaining') or result.get('state')!='complete' else 86400),
+              'state':result['state'],'operation_id':result['operation_id'],'remaining':result.get('remaining',0)}
+        if checkpoint:self.store.update('maintenance_checkpoint',key,data,checkpoint['version'])
+        else:self.store.create('maintenance_checkpoint',data,key)
+        return result
 
 
 def handler_class(app):
@@ -168,7 +186,9 @@ def serve(config, initialize=False, scheduler_enabled=True):
     stop_event = threading.Event()
     def worker():
         while not stop_event.wait(1):
-            try: app.drain()
+            try:
+                app.drain()
+                app.maintain()
             except Exception as exc: print(json.dumps({'worker_error':type(exc).__name__}),flush=True)
     thread = threading.Thread(target=worker,daemon=True,name='outbox'); thread.start()
     runtime = {'pid':os.getpid(),'port':config['port'],'data_dir':str(config['data_dir']),

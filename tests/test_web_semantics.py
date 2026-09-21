@@ -34,6 +34,23 @@ class WebSemanticsTests(unittest.TestCase):
           assert.deepEqual(visibleReadPayload('snapshot',[]), {snapshot_at:'snapshot',items:[]});
         """)
 
+    def test_review_routes_time_order_and_channel_metadata_survive_notes_edit(self):
+        self.run_js("""
+          import assert from 'node:assert/strict';
+          import {reviewTarget,timeOrder,preserveChannels} from './web/lib.js';
+          assert.deepEqual(reviewTarget({kind:'scenario'}),{collection:'scenarios',label:'审阅情景',canReview:false});
+          assert.equal(reviewTarget({kind:'impact_path'}).collection,'impact-paths');
+          assert.equal(reviewTarget({}).canReview,true);
+          assert.ok(timeOrder('2026-09-20T00:30:00+08:00')<timeOrder('2026-09-19T18:00:00Z'));
+          assert.ok(timeOrder(null)<timeOrder('2026-09'));
+          const old=[{url:'https://example.org/a',source_id:'a',source_record_id:'1',publisher:'原发布者'},
+                     {url:'https://example.org/b',source_id:'b',source_record_id:'2',title:'次渠道原题',discovered_at:'2026-09-01'}];
+          assert.deepEqual(preserveChannels(old,old.map(x=>x.url),'a'),old);
+          const changed=preserveChannels(old,['https://example.org/b','https://example.org/c'],'a');
+          assert.deepEqual(changed[0],old[1]);
+          assert.deepEqual(changed[1],{url:'https://example.org/c',source_id:'a'});
+        """)
+
     def test_unknown_time_and_country_have_no_invented_precision(self):
         self.run_js("""
           import assert from 'node:assert/strict';
