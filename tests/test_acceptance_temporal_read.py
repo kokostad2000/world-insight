@@ -121,6 +121,44 @@ class TemporalReadHttpAcceptance(unittest.TestCase):
         self.assertEqual(self.api('events', query=today)['total'], 0)
         self.assertEqual(self.api('events', query={'topic_id': topic['id']})['total'], 2)
 
+    def test_ac04_repeat_collection_updates_receipt_without_rewriting_history_or_today_events(self):
+        self.now = '2026-09-14T09:00:00.000000Z'
+        topic = self.topic(source_ids=['source-fed'], keywords=['fixture'])
+        first = self.collect_old_rss(topic)
+        self.assertEqual(first['first_collected_at'], self.now)
+        self.assertEqual(first['collected_at'], self.now)
+        self.assertEqual(first['last_collected_at'], self.now)
+        first_version = first['version']
+        first_changes = len(self.store.all('change'))
+
+        self.now = '2026-09-21T09:00:00.000000Z'
+        repeated = self.collect_old_rss(topic)
+        self.assertEqual(repeated['id'], first['id'])
+        self.assertEqual(repeated['version'], first_version)
+        self.assertEqual(repeated['first_collected_at'], '2026-09-14T09:00:00.000000Z')
+        self.assertEqual(repeated['collected_at'], '2026-09-14T09:00:00.000000Z')
+        self.assertEqual(repeated['last_collected_at'], self.now)
+        self.assertEqual(repeated['acquisition_receipt']['source_id'], 'source-fed')
+        self.assertEqual(len(self.api('evidence/' + first['id'] + '/history')['items']), 1)
+        self.assertEqual(len(self.store.all('change')), first_changes)
+
+        today = {'topic_id': topic['id'], 'since': '2026-09-21T00:00:00+08:00',
+                 'until': '2026-09-21T23:59:59+08:00'}
+        self.assertEqual(self.api('evidence', query={**today, 'time_field': 'last_collected_at'})['total'], 1)
+        self.assertEqual(self.api('evidence', query={**today, 'time_field': 'published_at'})['total'], 0)
+        filtered = self.api('evidence', query={'topic_id': topic['id'], 'status': 'unverified'})['items']
+        self.assertEqual(filtered[0]['last_collected_at'], self.now)
+        self.assertEqual(filtered[0]['acquisition_receipt'], repeated['acquisition_receipt'])
+        self.assertEqual(self.api('events', query=today)['total'], 0)
+        self.assertEqual(self.api('dashboard', query={'window': '24h', 'topic_id': topic['id']})['total'], 0)
+
+        receipt_before_failure = repeated['acquisition_receipt']
+        self.api('sources/source-fed/refresh', {'topic_id': topic['id']})
+        failed = sources.Scheduler(self.store, fetcher=lambda *_: adapters.Response(500, b'fixture failure')).tick(schedule=False)
+        self.assertEqual(failed['state'], 'retry')
+        after_failure = self.api('evidence/' + first['id'])
+        self.assertEqual(after_failure['acquisition_receipt'], receipt_before_failure)
+
     def test_ac08_format_candidate_does_not_create_retraction_or_review_alerts(self):
         topic = self.topic()
         first = self.evidence('format-only', topic, excerpt='[夹具] 第一行\n第二行')

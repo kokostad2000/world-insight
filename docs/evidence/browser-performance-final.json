@@ -1,0 +1,77 @@
+{
+  "recorded_at": "2026-09-21T14:48:53Z",
+  "commit_base": "ea1abde818d18db0fbc2cbf9762a30e47b666e20",
+  "environment": {
+    "platform": "macOS 15.6.1 arm64",
+    "python": "3.11.4",
+    "machine": "MacBookAir10,1 / Apple M1 / 8 GiB",
+    "browser": "Codex in-app Chromium browser",
+    "port": 8892,
+    "network": "loopback only; no upstream I/O",
+    "cache": "warm SQLite/OS cache; initial tab loads excluded"
+  },
+  "fixture": {
+    "data_dir": "/private/tmp/world-insight-browser-capacity-20260921",
+    "evidence": 20000,
+    "claims": 2500,
+    "events": 2500,
+    "topics": 10,
+    "judgments": 10,
+    "concurrent_browser_tabs": 5,
+    "body_bytes_per_evidence": 0,
+    "isolation": "synthetic capacity fixture; retained after service stop"
+  },
+  "method": {
+    "rounds": 8,
+    "samples": 40,
+    "p95": "nearest-rank ceil(0.95*N)",
+    "measurement": "performance.now at successful dashboard insertion plus two requestAnimationFrame callbacks",
+    "validation_per_sample": {
+      "dashboard_heading": 1,
+      "topic_cards": 10,
+      "current_judgment_labels": 10
+    },
+    "precondition": "GET /api/sources?limit=200 returned HTTP 200 including the legacy partial benchmark source",
+    "excluded_attempt": "An earlier run exposed a legacy source row KeyError and was excluded. The final run follows the compatibility fix and has no source endpoint or browser console error."
+  },
+  "code_sha256": {
+    "web/app.js": "34e14daf6e54d25440b33b8594ca0b28374c4d341f982eea1981c4d79ada9477",
+    "server/modules/knowledge/__init__.py": "a3f1d734a2abe99227ebd94c1bbe7fd0764aa776b4847ce4e4077549ac6abf04",
+    "server/modules/research/__init__.py": "68cb087b81276597e4ba70701646587bb61973861f36cb95059a78a1dd531465",
+    "server/modules/sources/__init__.py": "8910c4fd40dceed4c1bfc0fe5077f9714fe7827be2708c92812606dc8d4b3459"
+  },
+  "summary": {
+    "p95_ms": 703.5,
+    "max_ms": 723.8,
+    "max_navigation_start_spread_ms": 16.099853515625,
+    "validated_samples": 40,
+    "browser_console_errors": 0,
+    "target_ms": 3000,
+    "target_met": true
+  },
+  "samples_ms": [
+    [703.5, 701.1, 698.6, 723.8, 721.8],
+    [564.9, 566.2, 575.0, 573.1, 572.9],
+    [509.1, 503.0, 500.8, 498.3, 496.1],
+    [524.2, 521.9, 519.7, 518.3, 516.7],
+    [503.2, 508.0, 514.9, 513.3, 511.5],
+    [588.2, 585.7, 600.7, 598.5, 597.0],
+    [587.1, 585.4, 584.0, 597.5, 595.5],
+    [529.5, 543.2, 541.0, 537.0, 536.3]
+  ],
+  "navigation_start_epoch_ms": [
+    [1790002095715.3, 1790002095717.7, 1790002095726.6, 1790002095729.2, 1790002095731.4],
+    [1790002096554.7, 1790002096558.4, 1790002096560.6, 1790002096562.4, 1790002096564.1],
+    [1790002097260.4, 1790002097266.5, 1790002097268.6, 1790002097271.4, 1790002097273.5],
+    [1790002097895.3, 1790002097897.8, 1790002097899.8, 1790002097901.3, 1790002097902.9],
+    [1790002098549.0, 1790002098552.3, 1790002098554.6, 1790002098556.4, 1790002098558.1],
+    [1790002099164.6, 1790002099167.2, 1790002099168.9, 1790002099171.0, 1790002099172.6],
+    [1790002099865.8, 1790002099867.5, 1790002099868.9, 1790002099872.0, 1790002099874.1],
+    [1790002100573.1, 1790002100575.9, 1790002100578.2, 1790002100582.2, 1790002100584.4]
+  ],
+  "limits": [
+    "Synthetic metadata-only capacity fixture, not real research content.",
+    "Warm local read path; not cold boot, large full text, collection-write contention, or seven-day operation.",
+    "The test establishes the PRD dashboard first-usable target only for the recorded environment and code hashes."
+  ]
+}

@@ -202,6 +202,18 @@ class SourceTests(unittest.TestCase):
         self.assertFalse(self.store.get('source', 'source-paid')['enabled'])
         self.assertFalse(self.store.get('source', 'source-ai')['enabled'])
 
+    def test_source_list_tolerates_legacy_rows_without_budget_fields(self):
+        legacy = self.store.create('source', {
+            'name': 'Legacy benchmark source', 'adapter': 'manual', 'rights': {},
+            'enabled': False, 'status': 'manual',
+        }, record_id='legacy-source')
+        result = sources.handle(self.store, 'GET', ['sources'], {}, {'limit': 100})
+        item = next(item for item in result['items'] if item['id'] == legacy['id'])
+        self.assertEqual(item['provider'], 'manual')
+        self.assertEqual(item['provider_budget_daily'], 0)
+        self.assertEqual(item['provider_requests_today'], 0)
+        self.assertIsNone(item['provider_last_attempt'])
+
     def test_unreviewed_rss_and_paid_ai_activation_rejected(self):
         for url in ['http://www.federalreserve.gov/feeds/x.xml', 'https://127.0.0.1/a', 'https://www.federalreserve.gov.evil.test/feeds/a', 'https://u:p@www.federalreserve.gov/feeds/a', 'https://www.federalreserve.gov/feeds/x?token=secret']:
             source = self.store.get('source', 'source-fed')
@@ -482,13 +494,17 @@ class SourceTests(unittest.TestCase):
         from server.modules import knowledge
         calls = []
         original = knowledge.ingest
-        def ingest(store, data, *, origin):
-            calls.append(origin)
-            return original(store, data, origin=origin)
+        def ingest(store, data, *, origin, acquisition_job_id=None, acquired_at=None):
+            calls.append((origin, acquisition_job_id, acquired_at))
+            return original(store, data, origin=origin, acquisition_job_id=acquisition_job_id,
+                            acquired_at=acquired_at)
         with patch.object(knowledge, 'ingest', ingest):
             job = sources.Scheduler(self.store, fetcher=lambda *_: adapters.Response(200, RSS)).tick(False)
         self.assertEqual(job['state'], 'complete')
-        self.assertEqual(calls, ['collector'])
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0], 'collector')
+        self.assertEqual(calls[0][1], job['id'])
+        self.assertEqual(calls[0][2], self.clock)
 
 
 if __name__ == '__main__':

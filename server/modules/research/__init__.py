@@ -5,6 +5,7 @@ from server.platform.errors import ApiError
 from server.platform.time_utils import in_range
 from server.modules.knowledge.validation import choice, expected, fail, fields, page, references, strings, temporal, text, topic
 from server.modules.knowledge import policy_context, source_counts
+from server.modules.knowledge.acquisition import latest_acquisition
 from server.modules.knowledge.rights import present_evidence
 
 COLLECTIONS = {"topics": "topic", "judgments": "judgment", "scenarios": "scenario", "impact-paths": "impact_path", "reviews": "review"}
@@ -253,6 +254,10 @@ def _bundle(store, topic_id, include_history, action):
         result["histories"] = history
     result["citations"] = [_evidence_view(store.version(ref), action, context) for ref in sorted(refs)]
     result["evidence"] = [_evidence_view(row, action, context) for row in result["evidence"]]
+    for row in result["evidence"]:
+        receipt = latest_acquisition(store, row["id"])
+        row["last_collected_at"] = receipt["collected_at"] if receipt else None
+        row["acquisition_receipt"] = receipt
     result["source_counts"] = source_counts(result["evidence"], store)
     source_ids = {r.get("source_id") for r in result["evidence"] + result["observations"]}
     source_ids.update(source_id for row in result["evidence"] + result["citations"] for source_id in row["content_policy"]["source_ids"])

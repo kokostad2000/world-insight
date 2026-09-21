@@ -172,14 +172,16 @@ def _configured(source):
 
 
 def _provider_budget(store, source, now):
-    family = ([item for item in store.all('source', include_deleted=True) if item['adapter'] in GDELT_ADAPTERS]
-              if source['adapter'] in GDELT_ADAPTERS else [source])
+    adapter = source.get('adapter', 'manual')
+    family = ([item for item in store.all('source', include_deleted=True) if item.get('adapter') in GDELT_ADAPTERS]
+              if adapter in GDELT_ADAPTERS else [source])
     enabled = [item for item in family if _configured(item) and not item.get('deleted')]
-    return {'provider': 'gdelt' if source['adapter'] in GDELT_ADAPTERS else source['adapter'],
+    return {'provider': 'gdelt' if adapter in GDELT_ADAPTERS else adapter,
             'provider_requests_today': sum(item.get('requests_today', 0) for item in family if item.get('budget_date') == now[:10]),
-            'provider_budget_daily': min((item['budget_daily'] for item in enabled), default=source['budget_daily']),
-            'provider_min_interval_seconds': 6 if source['adapter'] in GDELT_ADAPTERS else 0,
-            'provider_last_attempt': max((item['last_attempt'] for item in family if item.get('last_attempt')), key=_date, default=None)}
+            'provider_budget_daily': min((item.get('budget_daily', 0) for item in enabled),
+                                         default=source.get('budget_daily', 0)),
+            'provider_min_interval_seconds': 6 if adapter in GDELT_ADAPTERS else 0,
+            'provider_last_attempt': max((item.get('last_attempt') for item in family if item.get('last_attempt')), key=_date, default=None)}
 
 
 def _source_view(store, source):
@@ -191,7 +193,7 @@ def _source_view(store, source):
     return {**source, 'recovery_constraints': constraints,
             'requests_today': source.get('requests_today', 0) if source.get('budget_date') == now[:10] else 0,
             **_provider_budget(store, source, now),
-            **({'discovery_note': gkg.NOTE} if source['adapter'] == 'gdelt_gkg' else {})}
+            **({'discovery_note': gkg.NOTE} if source.get('adapter') == 'gdelt_gkg' else {})}
 
 
 def _selected(source, topic):
@@ -661,10 +663,9 @@ class Scheduler:
             return job
         if self.evidence_sink is None or self.observation_sink is None:
             from server.modules import knowledge
-            evidence_sink = self.evidence_sink or (lambda store, data: knowledge.ingest(store, data, origin='collector'))
             observation_sink = self.observation_sink or knowledge.upsert_observation
         else:
-            evidence_sink, observation_sink = self.evidence_sink, self.observation_sink
+            observation_sink = self.observation_sink
         with self.store.transaction():
             current = self.store.get('source', source['id'])
             current_job = self.store.get('collection_job', job['id'])
@@ -674,8 +675,14 @@ class Scheduler:
                     or current.get('config') != source.get('config') or current.get('rights') != source.get('rights')):
                 return _patch(self.store, 'collection_job', current_job, {'state': 'cancelled', 'last_error': '请求期间来源配置或许可发生变化，本批次未入库。'})
             versions = {}
+            acquired_at = self.store.now()
             for item in parsed['evidence']:
-                record = evidence_sink(self.store, item)
+                if self.evidence_sink is None:
+                    record = knowledge.ingest(self.store, item, origin='collector',
+                                              acquisition_job_id=current_job['id'], acquired_at=acquired_at)
+                else:
+                    # Test/provider callback compatibility: external sinks retain the two-argument seam.
+                    record = self.evidence_sink(self.store, item)
                 versions[item['source_record_id']] = f"{record['id']}@{record['version']}"
             for item in parsed['observations']:
                 item['evidence_version_ids'] = [versions[item['source_record_id']]]

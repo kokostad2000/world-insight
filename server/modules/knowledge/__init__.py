@@ -8,6 +8,7 @@ import uuid
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from server.platform.errors import ApiError
 from server.platform.time_utils import in_range
+from .acquisition import acquisition_index, latest_acquisition, record_acquisition
 from .validation import choice, expected, fail, fields, page, references, strings, temporal, text, topic
 from .rights import build_policy_context, effective_policy, present_evidence
 
@@ -20,6 +21,7 @@ EVIDENCE_STATUSES = {"unverified", "reviewed", "disputed", "corrected", "withdra
 EVIDENCE_FIELDS.add("content_scope")
 METRIC_FIELDS.add("topic_ids")
 PROVENANCE_FIELDS = {"ingest_origin", "first_collected_at", "manually_touched"}
+_LOOKUP_ACQUISITION = object()
 
 
 def canonical_url(value):
@@ -186,6 +188,27 @@ def _ingest_response(store, record, origin):
     return result
 
 
+def _finish_ingest(store, record, origin, *, source_id, acquisition_job_id=None, acquired_at=None):
+    """Return the ingest result and atomically record a trusted collector receipt."""
+    result = _ingest_response(store, record, origin)
+    receipt = record_acquisition(store, result, origin=origin, source_id=source_id,
+                                 job_id=acquisition_job_id, collected_at=acquired_at)
+    if receipt:
+        result["last_collected_at"] = receipt["collected_at"]
+        result["acquisition_receipt"] = receipt
+    return result
+
+
+def _with_acquisition(store, record, receipt=_LOOKUP_ACQUISITION):
+    """Project the current collector receipt without changing Evidence history."""
+    value = copy.deepcopy(record)
+    if receipt is _LOOKUP_ACQUISITION:
+        receipt = latest_acquisition(store, record["id"])
+    value["last_collected_at"] = receipt["collected_at"] if receipt else None
+    value["acquisition_receipt"] = receipt
+    return value
+
+
 def _alias_keys(data):
     keys = []
     if data.get("source_record_id"):
@@ -257,7 +280,7 @@ def _dedup(store, data):
     return None
 
 
-def ingest(store, data, *, origin="manual"):
+def ingest(store, data, *, origin="manual", acquisition_job_id=None, acquired_at=None):
     """Public acquisition boundary. Exact identity, immutable updates, no semantic confirmation."""
     clean = fields(data, EVIDENCE_FIELDS)
     if origin not in {"manual", "collector"}:
@@ -303,20 +326,25 @@ def ingest(store, data, *, origin="manual"):
             patch.update({key: merged[key] for key in ("excerpt", "translation", "content_fingerprint", "channels")})
             if all(old.get(k) == v for k, v in patch.items()):
                 _bind_aliases(store, old)
-                return {**_ingest_response(store, old, origin), "deduplicated": True}
+                return {**_finish_ingest(store, old, origin, source_id=item["source_id"],
+                                         acquisition_job_id=acquisition_job_id, acquired_at=acquired_at),
+                        "deduplicated": True}
             updated = store.update("evidence", old["id"], patch, old["version"])
             _bind_aliases(store, updated)
             narrowed = _rights_narrowed(old.get("rights", {}), updated.get("rights", {}))
             reason = "来源许可收窄，相关研究需重审" if narrowed else patch.get("change_reason", "新增出现渠道或议题关联")
             if narrowed: _mark_dependents(store, updated, reason)
             store.publish("evidence.updated", old["id"], _event_payload(updated, reason, dependency_review=narrowed))
-            return {**_ingest_response(store, updated, origin), "deduplicated": True}
+            return {**_finish_ingest(store, updated, origin, source_id=item["source_id"],
+                                     acquisition_job_id=acquisition_job_id, acquired_at=acquired_at),
+                    "deduplicated": True}
         item = _prepare_evidence(store, item)
         item.update({"ingest_origin": origin, "first_collected_at": store.now(), "manually_touched": origin == "manual"})
         created = store.create("evidence", item)
         _bind_aliases(store, created)
         store.publish("evidence.created", created["id"], _event_payload(created))
-        return _ingest_response(store, created, origin)
+        return _finish_ingest(store, created, origin, source_id=item["source_id"],
+                              acquisition_job_id=acquisition_job_id, acquired_at=acquired_at)
 
 
 def _prepare_claim(store, data, old=None):
@@ -627,6 +655,8 @@ def _list(store, kind, query):
         context = policy_context(store, [row["id"] for row in result["items"]]) if kind == "evidence" else None
         result["items"] = [_present(row, context=context) for row in result["items"]]
         if kind == "evidence":
+            receipts = acquisition_index(store)
+            result["items"] = [_with_acquisition(store, row, receipts.get(row["id"])) for row in result["items"]]
             result["source_counts"] = source_counts(result["items"], store)
         return result
     rows = store.all(kind, topic_id=query.get("topic_id"))
@@ -634,10 +664,14 @@ def _list(store, kind, query):
         if query.get(key):
             rows = [r for r in rows if (r.get("location", {}).get(key) if key == "country_code" and kind == "event" else r.get(key)) == query[key]]
     time_field = query.get("time_field", "occurred_at" if kind == "event" else "published_at")
-    if time_field not in {"occurred_at", "published_at", "collected_at", "discovered_at", "updated_at"}:
+    if time_field not in {"occurred_at", "published_at", "collected_at", "last_collected_at", "discovered_at", "updated_at"}:
         fail("不支持的时间筛选字段")
+    if time_field == "last_collected_at" and kind != "evidence":
+        fail("最近收取时间仅适用于材料")
+    receipts = acquisition_index(store) if kind == "evidence" else None
     if query.get("since") or query.get("until"):
-        rows = [r for r in rows if in_range(r.get(time_field),query.get("since"),query.get("until"))]
+        rows = [r for r in rows if in_range((receipts.get(r["id"], {}).get("collected_at") if time_field == "last_collected_at"
+                    else r.get(time_field)), query.get("since"), query.get("until"))]
     if query.get("similar_to"):
         original = store.get("evidence", query["similar_to"])
         from difflib import SequenceMatcher
@@ -667,6 +701,7 @@ def _list(store, kind, query):
         values = [_present(row, context=context) for row in rows[offset:offset + limit]]
     result = {"items": values, "total": len(rows), "offset": offset, "limit": limit, "data_status": "fresh", "empty_reason": None if rows else "no_matches"}
     if kind == "evidence":
+        result["items"] = [_with_acquisition(store, row, receipts.get(row["id"])) for row in result["items"]]
         result["source_counts"] = source_counts(rows, store)
     return result
 
@@ -701,7 +736,7 @@ def _handle(store, method, segments, body, query):
                 values = [_present(row, context=context) for row in store.history(kind, record_id)]
                 return {"items": values}
             if kind == "evidence" and segments[2] == "backlinks" and method == "GET":
-                record = _present(store.get(kind, record_id), store=store)
+                record = _with_acquisition(store, _present(store.get(kind, record_id), store=store))
                 return {"evidence": record, "relations": _relations(store, record_id)}
             if kind == "evidence" and method == "POST":
                 if segments[2] == "corrections":
@@ -712,6 +747,7 @@ def _handle(store, method, segments, body, query):
             if method == "GET":
                 record = _present(store.get(kind, record_id), store=store if kind == "evidence" else None)
                 if kind == "evidence":
+                    record = _with_acquisition(store, record)
                     record["relations"] = _relations(store, record_id)
                     record["source_counts"] = source_counts([record], store)
                 return record
