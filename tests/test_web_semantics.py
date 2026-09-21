@@ -51,6 +51,21 @@ class WebSemanticsTests(unittest.TestCase):
           assert.deepEqual(changed[1],{url:'https://example.org/c',source_id:'a'});
         """)
 
+    def test_source_rename_does_not_reauthorize_recovered_content(self):
+        self.run_js("""
+          import assert from 'node:assert/strict';
+          import {sourcePolicyPatch} from './web/lib.js';
+          const original={rights:{fetch:true,store:true,display:true,export:true,ai:false},retention_days:7};
+          const renamed={...original,rights:{...original.rights},name:'New name'};
+          assert.deepEqual(sourcePolicyPatch(renamed,original),{name:'New name'});
+          assert.deepEqual(sourcePolicyPatch(renamed,original,true),renamed);
+          assert.deepEqual(sourcePolicyPatch({...renamed,retention_days:3},original),{name:'New name',retention_days:3});
+          const narrowed={...renamed,rights:{...renamed.rights,display:false}};
+          assert.deepEqual(sourcePolicyPatch(narrowed,original),{name:'New name',rights:narrowed.rights});
+          assert.deepEqual(sourcePolicyPatch(renamed,null),renamed);
+          assert.equal(renamed.rights.display,true);
+        """)
+
     def test_unknown_time_and_country_have_no_invented_precision(self):
         self.run_js("""
           import assert from 'node:assert/strict';

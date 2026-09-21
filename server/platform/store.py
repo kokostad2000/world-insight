@@ -187,6 +187,11 @@ class Store:
             self._policy_index = None
             timestamp = self.now()
             for snapshot in self.history(kind, record_id):
+                for channel in snapshot.get('channels') or []:
+                    if isinstance(channel, dict):
+                        for field in ('excerpt', 'translation', 'content_fingerprint'):
+                            if field in channel:
+                                channel[field] = None if field == 'content_fingerprint' else ''
                 snapshot.update({'excerpt': '', 'translation': '', 'content_fingerprint': None,
                                  'content_expired': True, 'content_redacted_at': timestamp,
                                  'content_redaction_reason': reason})

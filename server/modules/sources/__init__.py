@@ -184,7 +184,12 @@ def _provider_budget(store, source, now):
 
 def _source_view(store, source):
     now = store.now()
-    return {**source, 'requests_today': source.get('requests_today', 0) if source.get('budget_date') == now[:10] else 0,
+    from server.modules.knowledge.policy_period import recovery_policy_end
+    facts = [fact for fact in store.all('recovery_source_policy') if fact.get('source_id') == source['id']]
+    native = store.history('source', source['id']) if facts else []
+    constraints = [{**fact, 'policy_end_at': recovery_policy_end(fact, native)} for fact in facts]
+    return {**source, 'recovery_constraints': constraints,
+            'requests_today': source.get('requests_today', 0) if source.get('budget_date') == now[:10] else 0,
             **_provider_budget(store, source, now),
             **({'discovery_note': gkg.NOTE} if source['adapter'] == 'gdelt_gkg' else {})}
 
