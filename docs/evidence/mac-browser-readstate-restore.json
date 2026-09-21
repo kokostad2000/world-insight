@@ -1,0 +1,82 @@
+{
+  "is_fixture": true,
+  "port": 8877,
+  "code_dir": "/private/tmp/world-insight-root-browser-readstate-20260921/浏览器验收 代码",
+  "data_dir": "/private/tmp/world-insight-root-browser-readstate-20260921/恢复实例 数据",
+  "backup": "/private/tmp/world-insight-root-browser-readstate-20260921/拒绝回退前当前状态.wibackup",
+  "original_topic_id": "3c2be804-c097-4754-a89e-a74f0e821bbf",
+  "evidence_id": "d79a0c25-05cf-4c3c-95d2-3307245e1291",
+  "fixed_evidence_version": "d79a0c25-05cf-4c3c-95d2-3307245e1291@1",
+  "judgment_id": "721b41b4-a143-48c2-938a-97a7cceebaa4",
+  "judgment_version": 2,
+  "read_items": [
+    {
+      "id": "change-0e9a07c7-ad49-406e-afab-0ddc0082174d",
+      "version": 1
+    },
+    {
+      "id": "change-f9876b3e-558c-4b02-83ac-1798fdb0d26e",
+      "version": 1
+    }
+  ],
+  "new_topic_id": "97e1e883-712c-480d-9101-b6568da471c0",
+  "new_evidence_id": "3f17d94a-60b2-419c-b7d3-8e7742064180",
+  "source_check": {
+    "id": "source-fed",
+    "enabled": false,
+    "budget_daily": 3
+  },
+  "retention_check": {
+    "candidate_retention_enabled": false,
+    "batch_limit": 7
+  },
+  "attachments": {
+    "attachments/nested/版本样本.bin": {
+      "size": 23,
+      "sha256": "f849c875a5a86e6a13dc578f680dca4c5146febf5d47849437b88c38f873efd8"
+    },
+    "attachments/升级后新增 附件.txt": {
+      "size": 57,
+      "sha256": "029c6146b542b95cb6e64df8a2865b4ab01a54f2451739e1b6ddb0a02f2c52b7"
+    },
+    "attachments/合法自编 说明.txt": {
+      "size": 67,
+      "sha256": "a86f72c46e88d1129816b8a2e6c66608c8713cb88c65626e07604553577ab625"
+    }
+  },
+  "no_browser_validation_claimed": false,
+  "validated_at": "2026-09-21T02:47:14.752892+00:00",
+  "actual_automatic_browser": "Edge tab 1006907393 opened by scripts/start.sh without --no-browser at 2026-09-21T02:43:57.478Z; localhost8877 rendered dashboard",
+  "browser_read_state": {
+    "all_changes": 7,
+    "unread_after_selecting_since_last_read": 5,
+    "previously_read_items": 2
+  },
+  "browser_edit": {
+    "judgment_version_before": 2,
+    "after": 3,
+    "fixed_reference": "d79a0c25-05cf-4c3c-95d2-3307245e1291@1",
+    "change_reason": "空目录恢复后真实浏览器复核：阅读状态与固定引用保留，继续保存。"
+  },
+  "attachments_rechecked": true,
+  "service_pid": 77609,
+  "prepared_fixture_status": "restored_and_stopped",
+  "status": "browser_validation_completed",
+  "prepared_start_command": [
+    "/private/tmp/world-insight-root-browser-readstate-20260921/浏览器验收 代码/scripts/start.sh",
+    "--data-dir",
+    "/private/tmp/world-insight-root-browser-readstate-20260921/恢复实例 数据",
+    "--port",
+    "8877",
+    "--no-browser",
+    "--no-scheduler"
+  ],
+  "actual_start_command": [
+    "/private/tmp/world-insight-root-browser-readstate-20260921/浏览器验收 代码/scripts/start.sh",
+    "--data-dir",
+    "/private/tmp/world-insight-root-browser-readstate-20260921/恢复实例 数据",
+    "--port",
+    "8877",
+    "--no-scheduler"
+  ]
+}

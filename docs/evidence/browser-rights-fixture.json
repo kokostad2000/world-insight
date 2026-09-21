@@ -1,0 +1,34 @@
+{
+  "is_fixture": true,
+  "source": "b3bd5724-29b6-4d28-b51c-2d822fcae762",
+  "topic": "00fa048e-ae5c-47f9-a9da-1fa0ec875e7d",
+  "evidence": "3aa3d7c3-1fc6-4880-bfb6-0ced7b9d01cc",
+  "judgment": "71811f87-947b-4c79-9ffc-9b3589ec9b80",
+  "evidence_before_version": 2,
+  "fixed_reference": "3aa3d7c3-1fc6-4880-bfb6-0ced7b9d01cc@1",
+  "source_before": {
+    "fetch": false,
+    "store": true,
+    "display": true,
+    "export": true,
+    "ai": false
+  },
+  "downloads": [
+    {
+      "path": "/Users/zhanglike/Downloads/world-insight-00fa048e-ae5c-47f9-a9da-1fa0ec875e7d.json",
+      "bytes": 24555,
+      "sha256": "a3ce0fbe186ee38534cab9817289ceebacbc82a254ea6aef75a7116032e0f98f",
+      "restricted_body_absent": true,
+      "authored_notes_preserved": true,
+      "fixed_reference_preserved": true
+    },
+    {
+      "path": "/Users/zhanglike/Downloads/world-insight-00fa048e-ae5c-47f9-a9da-1fa0ec875e7d.md",
+      "bytes": 17430,
+      "sha256": "fe86fb2b836a5c3edf39be578c4a0610947d416aa3fd8d01dfc59469137928a8",
+      "restricted_body_absent": true,
+      "authored_notes_preserved": true,
+      "fixed_reference_preserved": true
+    }
+  ]
+}

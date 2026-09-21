@@ -1,0 +1,80 @@
+{
+  "fault_target": "6434834c31f6ebe9fd0db6a1227dca903df146a3",
+  "command": [
+    "./scripts/update.sh",
+    "--target",
+    "6434834c31f6ebe9fd0db6a1227dca903df146a3"
+  ],
+  "exit_code": 1,
+  "harness_note": "脚本误将预期失败退出码写作2导致末尾断言失败；产品返回约定的1且日志显示成对回退。此次记录由实际更新日志与只读数据库复核，不重新执行故障。",
+  "update_record": {
+    "id": "2026-09-21T01-58-09.597727Z-2206d5b9",
+    "state": "rolled_back",
+    "started_at": "2026-09-21T01:58:09.606649Z",
+    "old_program": {
+      "root": "/private/tmp/World Insight 中文 QA-znmxrdsi/World Insight Programs/ad5e32fb908477929d950ee881c653e14a2ce435",
+      "version": "0.1.0",
+      "schema_version": 1,
+      "commit": "ad5e32fb908477929d950ee881c653e14a2ce435"
+    },
+    "new_program": {
+      "root": "/private/tmp/World Insight 中文 QA-znmxrdsi/World Insight Programs/6434834c31f6ebe9fd0db6a1227dca903df146a3",
+      "version": "0.1.0",
+      "schema_version": 2,
+      "commit": "6434834c31f6ebe9fd0db6a1227dca903df146a3"
+    },
+    "prior_selection": {
+      "root": "/private/tmp/World Insight 中文 QA-znmxrdsi/World Insight Programs/ad5e32fb908477929d950ee881c653e14a2ce435",
+      "commit": "ad5e32fb908477929d950ee881c653e14a2ce435",
+      "selected_at": "2026-09-21T01:41:58.340833Z",
+      "update_id": "2026-09-21T01-41-57.683864Z-4854ee46"
+    },
+    "was_running": true,
+    "data_dir": "/private/tmp/World Insight 中文 QA-znmxrdsi/恢复资料 Data",
+    "backup": "/private/tmp/World Insight 中文 QA-znmxrdsi/恢复资料 Data Backups/2026-09-21T01-58-10.008001Z-before-update.wibackup",
+    "failure_type": "OpsError",
+    "failed_state_restore_point": "/private/tmp/World Insight 中文 QA-znmxrdsi/恢复资料 Data-restore-point-43d0135513e443e4bd4a7f3351fe2969",
+    "rollback_at": "2026-09-21T01:58:10.626795Z",
+    "rollback_program": "/private/tmp/World Insight 中文 QA-znmxrdsi/World Insight Programs/ad5e32fb908477929d950ee881c653e14a2ce435"
+  },
+  "selected_program": {
+    "root": "/private/tmp/World Insight 中文 QA-znmxrdsi/World Insight Programs/ad5e32fb908477929d950ee881c653e14a2ce435",
+    "commit": "ad5e32fb908477929d950ee881c653e14a2ce435",
+    "selected_at": "2026-09-21T01:41:58.340833Z",
+    "update_id": "2026-09-21T01-41-57.683864Z-4854ee46"
+  },
+  "schema_version": 1,
+  "partial_table_exists": false,
+  "judgments": [
+    {
+      "topic_id": "7b3852f6-ae75-4a48-81d5-2a4e13ce60fe",
+      "conclusion": "空目录恢复后继续核查：官方 RSS 已登记 FOMC 声明发布记录；仍需阅读声明正文与实施文件，不能仅凭元数据推断经济影响。",
+      "judgment_type": "explanation",
+      "evidence_version_ids": [
+        "8d46566f-19e0-412b-9351-b045c95d5f92@2"
+      ],
+      "opposing_evidence_version_ids": [],
+      "assumptions": [
+        "官方 RSS 的标题与链接正确对应原始发布记录。"
+      ],
+      "missing_evidence": "尚未核查声明正文、实施文件与后续统计数据；没有对实施效果作判断。",
+      "confidence": "low",
+      "confidence_reason": "只有一条官方元数据来源，足以确认发布记录，不能独立证明落实或影响。",
+      "valid_until": "2026-12-31",
+      "outcome_criteria": null,
+      "review_date": "2026-09-27",
+      "status": "reviewed",
+      "author": "主开发 Agent（隔离真实资料验收）",
+      "reviewer": "主开发 Agent（仅结构与元数据验收）",
+      "change_reason": "正常本地版本升级到 ad5e32f 后，浏览器继续保存旧判断，验证数据目录与固定引用保持可用。",
+      "is_fixture": false,
+      "evidence_support": "evidence_linked",
+      "support_label": "已登记证据引用，仍需核查",
+      "id": "55728534-e2ef-4227-93f0-88528ed357af",
+      "version": 4,
+      "created_at": "2026-09-20T15:40:50.404020Z",
+      "updated_at": "2026-09-21T01:43:43.842988Z"
+    }
+  ],
+  "maintenance_exists": false
+}

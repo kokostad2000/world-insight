@@ -1,0 +1,21 @@
+{
+  "is_fixture": true,
+  "topic_id": "1161cfaf-e463-46c0-9c5a-f3c435aeaf2f",
+  "repost_materials": [
+    "a10c6918-4f6a-4733-80a8-fc62948c06fc",
+    "043be889-b184-416f-a532-bdd3763b45b9",
+    "5a38e788-f8be-4440-a458-a2168b552307",
+    "55f46ec0-d526-4539-a484-471578553e16",
+    "46986a5b-d403-4478-b6a9-3c293e8f4b16",
+    "e0f67d41-f58e-44ff-97d3-82474d95328b",
+    "7c68e3f9-77f8-456f-b0fe-307a75918409",
+    "eae947da-198d-4d3c-a0ce-b0c484065080",
+    "baf4769f-3a66-4eda-8aef-90ac6f0d679c",
+    "1a352605-2874-496a-bb3a-6168cf2eb699"
+  ],
+  "unknown_material": "564353df-6c36-4312-8b02-a29fbddd732c",
+  "disputed_event": "a00b4cfc-98a0-4531-9a12-013b9688bba0",
+  "ceasefire_claim": "e70f2add-171d-4bf1-b60c-54faa3670f6e",
+  "assumption_judgment": "1adbef01-9606-42dd-bb43-d0483bfae91c",
+  "review_count": 202
+}

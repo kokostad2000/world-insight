@@ -1,0 +1,28 @@
+{
+  "method": "实际git网络请求，单次命令局部配置不可连接的回环代理，不修改系统网络/代理",
+  "command": [
+    "git",
+    "-c",
+    "http.proxy=http://127.0.0.1:9",
+    "-c",
+    "http.lowSpeedLimit=1",
+    "-c",
+    "http.lowSpeedTime=2",
+    "fetch",
+    "--no-tags",
+    "https://github.com/kokostad2000/world-insight.git",
+    "main"
+  ],
+  "exit_code": 128,
+  "stdout": "",
+  "stderr": "fatal: unable to access 'https://github.com/kokostad2000/world-insight.git/': Failed to connect to 127.0.0.1 port 9 after 0 ms: Couldn't connect to server\n",
+  "research_hash_before": "a5e60dd0288ea391f1960acc2be528d274881b61536c4819fc8455821ab55dda",
+  "research_hash_after": "a5e60dd0288ea391f1960acc2be528d274881b61536c4819fc8455821ab55dda",
+  "active_program": {
+    "root": "/private/tmp/World Insight 中文 QA-znmxrdsi/World Insight Programs/ad5e32fb908477929d950ee881c653e14a2ce435",
+    "commit": "ad5e32fb908477929d950ee881c653e14a2ce435",
+    "selected_at": "2026-09-21T01:41:58.340833Z",
+    "update_id": "2026-09-21T01-41-57.683864Z-4854ee46"
+  },
+  "working_tree": ""
+}

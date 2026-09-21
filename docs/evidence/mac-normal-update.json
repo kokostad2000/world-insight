@@ -1,0 +1,49 @@
+{
+  "executed_at": "2026-09-21T09:41:58+0800",
+  "code_dir": "/private/tmp/World Insight 中文 QA-znmxrdsi/全新代码 repo",
+  "steps": [
+    {
+      "command": [
+        "git",
+        "status",
+        "--short"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "git",
+        "fetch",
+        "--no-tags",
+        "/Users/zhanglike/Desktop/world-insight",
+        "main"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "From /Users/zhanglike/Desktop/world-insight\n * branch            main       -> FETCH_HEAD\n"
+    },
+    {
+      "command": [
+        "./scripts/update.sh",
+        "--target",
+        "ad5e32f",
+        "--dry-run"
+      ],
+      "exit_code": 0,
+      "stdout": "{\n  \"status\": \"prepared\",\n  \"current\": {\n    \"root\": \"/private/tmp/World Insight 中文 QA-znmxrdsi/全新代码 repo\",\n    \"version\": \"0.1.0\",\n    \"schema_version\": 1,\n    \"commit\": \"dd527ab96b3501aece9b09ac8bce91417a1f0837\"\n  },\n  \"target\": {\n    \"root\": \"/private/tmp/World Insight 中文 QA-znmxrdsi/World Insight Programs/ad5e32fb908477929d950ee881c653e14a2ce435\",\n    \"version\": \"0.1.0\",\n    \"schema_version\": 1,\n    \"commit\": \"ad5e32fb908477929d950ee881c653e14a2ce435\"\n  },\n  \"database\": {\n    \"schema_version\": 1,\n    \"counts\": {\n      \"change\": 48,\n      \"claim\": 1,\n      \"collection_job\": 3,\n      \"evidence\": 40,\n      \"evidence_alias\": 80,\n      \"judgment\": 1,\n      \"knowledge_index\": 1,\n      \"notification\": 2,\n      \"observation\": 20,\n      \"source\": 6,\n      \"topic\": 1\n    },\n    \"version_count\": 418,\n    \"integrity\": \"ok\"\n  },\n  \"data_dir\": \"/private/tmp/World Insight 中文 QA-znmxrdsi/恢复资料 Data\",\n  \"release_directory\": \"/private/tmp/World Insight 中文 QA-znmxrdsi/World Insight Programs/ad5e32fb908477929d950ee881c653e14a2ce435\",\n  \"workspace\": {\n    \"clean\": true,\n    \"entries\": []\n  },\n  \"network_used\": false\n}\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "./scripts/update.sh",
+        "--target",
+        "ad5e32f"
+      ],
+      "exit_code": 0,
+      "stdout": "{\n  \"status\": \"updated\",\n  \"update_id\": \"2026-09-21T01-41-57.683864Z-4854ee46\",\n  \"record\": \"/private/tmp/World Insight 中文 QA-znmxrdsi/恢复资料 Data/updates/2026-09-21T01-41-57.683864Z-4854ee46.json\",\n  \"current\": {\n    \"root\": \"/private/tmp/World Insight 中文 QA-znmxrdsi/全新代码 repo\",\n    \"version\": \"0.1.0\",\n    \"schema_version\": 1,\n    \"commit\": \"dd527ab96b3501aece9b09ac8bce91417a1f0837\"\n  },\n  \"target\": {\n    \"root\": \"/private/tmp/World Insight 中文 QA-znmxrdsi/World Insight Programs/ad5e32fb908477929d950ee881c653e14a2ce435\",\n    \"version\": \"0.1.0\",\n    \"schema_version\": 1,\n    \"commit\": \"ad5e32fb908477929d950ee881c653e14a2ce435\"\n  },\n  \"database\": {\n    \"schema_version\": 1,\n    \"counts\": {\n      \"change\": 48,\n      \"claim\": 1,\n      \"collection_job\": 3,\n      \"evidence\": 40,\n      \"evidence_alias\": 80,\n      \"judgment\": 1,\n      \"knowledge_index\": 1,\n      \"notification\": 2,\n      \"observation\": 20,\n      \"source\": 6,\n      \"topic\": 1\n    },\n    \"version_count\": 418,\n    \"integrity\": \"ok\"\n  },\n  \"data_dir\": \"/private/tmp/World Insight 中文 QA-znmxrdsi/恢复资料 Data\",\n  \"release_directory\": \"/private/tmp/World Insight 中文 QA-znmxrdsi/World Insight Programs/ad5e32fb908477929d950ee881c653e14a2ce435\",\n  \"workspace\": {\n    \"clean\": true,\n    \"entries\": []\n  },\n  \"network_used\": false,\n  \"validation\": {\n    \"health\": {\n      \"status\": \"ok\",\n      \"app\": \"world-insight\",\n      \"version\": \"0.1.0\",\n      \"schema_version\": 1,\n      \"instance_id\": \"598cf366-006d-4cee-a89d-6aa1c2b1d481\",\n      \"data_dir\": \"/private/tmp/World Insight 中文 QA-znmxrdsi/恢复资料 Data\",\n      \"pid\": 15725,\n      \"maintenance\": true\n    },\n    \"data\": {\n      \"schema_version\": 1,\n      \"counts\": {\n        \"change\": 48,\n        \"claim\": 1,\n        \"collection_job\": 3,\n        \"evidence\": 40,\n        \"evidence_alias\": 80,\n        \"judgment\": 1,\n        \"knowledge_index\": 1,\n        \"notification\": 2,\n        \"observation\": 20,\n        \"source\": 6,\n        \"topic\": 1\n      },\n      \"version_count\": 418,\n      \"integrity\": \"ok\"\n    },\n    \"topic_count\": 1\n  }\n}\n",
+      "stderr": ""
+    }
+  ]
+}

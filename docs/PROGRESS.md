@@ -1,16 +1,23 @@
 # 当前进度（恢复入口）
 
-2026-09-21：工程持续实施。私有 origin 为 https://github.com/kokostad2000/world-insight；仅本地提交，从未推送。Python 3.11 标准库 + SQLite WAL + 原生 ES modules/SVG；运行时无 npm/pip 下载。
+2026-09-21：工程持续实施。私有 origin https://github.com/kokostad2000/world-insight 已实时确认，远端空仓；只有本地提交，未推送。Python 3.11标准库 + SQLite WAL + 原生ES modules/SVG；运行时无npm/pip下载。
 
-## 2026-09-21 恢复后的增量
+## 当前增量（取代下方历史状态）
 
-- 主线已合入 source scope/国家背景选择、collector provenance、M7有限期限备份净化与附件回退保护、生命周期后端及32项运维/期限联合回归。
-- 新增 `knowledge.lifecycle` 路由接线和持久化、有限批次自动维护检查点；迁移前恢复点执行合法内容净化。
-- 独立审查报告见 `docs/handoffs/p0-audit.md`，八项具体问题。主线修复权限收紧重审传播、历史变化假设标签、渠道元数据保留、时区时间线、全库判断/复盘分页与搜索、旧未读通知、情景/路径待办编辑目标。结论变更筛选比较历史结论而非仅版本号。
-- `python3 -m unittest discover -s tests -v` 实际146项通过，31.969秒，Mac隔离进程/SQLite/端口，见 `docs/evidence/integration-audit-round-two.txt`。随后结论筛选与呈现修订的11项针对回归通过0.330秒。自动测试不代替完整浏览器验收。
-- 中文/空格路径全新本地clone，启动/重复启动/停止完成；从运行中的真实源库备份恢复到空目录，并在恢复实例8876浏览器修改旧判断v2→v3、议题国家/来源设置v1→v2，显示10条USA年度WDI观测。命令证据 `mac-clean-restore.json`，路径 `mac-gui-paths.json`。Finder GUI受辅助功能/录屏权限阻止，未冒充双击已通过。
-- 当前并行：web Agent交付生命周期界面；sources Agent实现相似材料候选界面；ops Agent检查读取/导出时来源级权限及期限。三者独立worktree，root独占app/平台和集成。
-- 七天观察仍未开始，10条官方手工复核及全量质量抽查尚未完成；GDELT有效响应尚未通过。AC矩阵仍需按证据逐项刷新。
+- 主线已集成生命周期删除/备份预览/恢复、相似材料人工关联/移除/历史恢复、完整读取/历史/搜索/导出权限、source.policy_changed可靠传播、WDI国家范围交集，以及GKG默认关闭的免费备用元数据通道。
+- 真实GKG正式Scheduler两次GET成功，间隔6.111764秒，623条元数据形成45条去重材料；全部待核查、无正文、发布时间未知，三个议题partial/latest-only。脚本默认dry-run不联网。正式8880浏览器确认共享预算2/2、6秒、上次成功、缺口说明及45材料。不能据此声称DOC已恢复或元数据召回语义准确。见gkg-live-scheduler及第二轮浏览器证据。
+- 全历史权限每次扫描曾使5并发筛选P95达4.429秒，已按完整相关历史构建可失效事实索引，仍每请求重新判定权限/期限。相同2万材料/5千说法事件容量复测筛选0.353秒、搜索0.486秒、bundle1.787秒。48项权限/真实HTTP/投影回归通过；正式浏览器五标签40样本首可用P95为0.818秒，实际DOM内容已核对；最终收取凭据读路径合入后复验。见policy-performance-targeted.md与两份原始JSON。
+- 备份恢复发现旧source配置会丢失后来更严格的期限，已合入独立recovery_source_policy事实持久化，104项相关回归通过；正在补写入前有效store剥离与备份渠道正文副本清理。root平台已清历史渠道正文副本并实测SQLite字节，来源页面明确恢复约束，常规改名不重新授权；显式重新核对仅影响新材料。
+- Mac真实SIGKILL前后全records/versions/read_state/settings/附件清单一致；成功更新后新写入阻止回退，保留的当前恢复包又实际恢复至空目录。root运行start.sh（没有no-browser）后Edge自动打开8877，浏览器7条变化中的2条已读保持，判断v2→v3继续编辑，固定材料v1与3附件校验正确。已正常停止8877保留资料。见mac-browser-readstate-restore.json、mac-acceptance-remaining.md。
+- 8878正式页面已验：11转载记录/1来源链/1未知；5和12并列争议；单方停火仅说法；已审阅假设标签保留；205判断与202复盘全量分页；来源收紧后旧版/搜索/实际JSON与Markdown均不泄漏正文，人工笔记固定引用保留。见browser-integration-round-two.md。
+- 当前并行：ops/core补恢复写入净化；web补AC09/10/23/27正式Edge精确状态；sources补AC04/08/18真实HTTP与重复采集收取凭据。各独立worktree、数据与端口；root独占平台/契约/集成。以live agent交接为准，勿重做已提交工作。
+
+## 当前剩余
+
+1. 集成写前限制和重复采集时间凭据，运行最终全套回归、针对浏览器及容量复测。
+2. AC矩阵已按当前证据刷新，FR全项及工程M3仍未完成；Finder双击仍缺辅助功能/录屏权限，实际OS睡眠唤醒尚未执行。
+3. 最终整合性能复测、10条官方人工登记复核、真实材料结构抽查、交付清单审计及五议题试运行入口仍须逐项落实。
+4. 七天观察和十分钟效率测量仍未实际完成，PRD M4保持待观察，不能用fixture替代。
 
 下方早期进度保留作历史；当前状态以上述增量与Git/进程实测为准。
 
