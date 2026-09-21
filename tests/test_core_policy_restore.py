@@ -1,14 +1,17 @@
 """Isolated real SQLite/archive fixtures for recovery policy lineage; no upstream I/O."""
 import contextlib
+import http.client
 import json
 import tempfile
+import threading
 import unittest
 import uuid
 from pathlib import Path
+from http.server import ThreadingHTTPServer
 from unittest.mock import patch
 
 from ops import backup, runtime
-from server.app import Application
+from server.app import Application, handler_class
 from server.modules import knowledge, research, sources
 from server.modules.knowledge import lifecycle, rights
 from server.modules.knowledge.policy_period import RECOVERY_KIND
@@ -101,12 +104,17 @@ class RecoveryPolicyTests(unittest.TestCase):
         self.assertEqual(before['content_expires_at'], '2030-01-09T12:00:00.000000Z')
         repeated = self.material(restored, 10, 'OLD_LICENSE_BODY')
         self.assertEqual(repeated['id'], self.row['id'])
+        self.assertEqual(restored.get('evidence', repeated['id'])['excerpt'], '')
+        self.assertEqual(restored.get('evidence', repeated['id'])['translation'], '')
         self.assert_hidden(restored)
         with patch.object(restored, 'now', return_value=self.day(10)):
             edited = knowledge.handle(restored, 'PATCH', ['evidence', repeated['id']], {'expected_version': repeated['version'],
                 'excerpt': 'PATCH_MUST_NOT_SHOW', 'notes': 'USER_NOTE_KEEP', 'change_reason': '[fixture] user correction'}, {})
             self.assertEqual(edited['excerpt'], '')
+            self.assertEqual(restored.get('evidence', edited['id'])['excerpt'], '')
+            self.assertIsNone(restored.get('evidence', edited['id'])['content_fingerprint'])
         derived = self.material(restored, 10, 'DERIVED_MUST_NOT_SHOW', source_id='manual', origin_evidence_id=self.row['id'])
+        self.assertEqual(restored.get('evidence', derived['id'])['excerpt'], '')
         self.assert_hidden(restored, derived)
         with patch.object(restored, 'now', return_value=self.day(10)):
             exported = research.export(restored, {'topic_id': self.topic['id']})
@@ -152,6 +160,7 @@ class RecoveryPolicyTests(unittest.TestCase):
         self.assertEqual(fresh_source['version'], self.source['version'])  # Two different @2 lineages.
         fresh = self.material(restored, 12, 'FRESH_LEGALLY_REAUTHORIZED')
         self.assertEqual(fresh['excerpt'], 'FRESH_LEGALLY_REAUTHORIZED')
+        self.assertEqual(restored.get('evidence', fresh['id'])['excerpt'], 'FRESH_LEGALLY_REAUTHORIZED')
         self.assertIsNone(fresh['content_expires_at'])
         self.assertEqual(fresh['content_policy']['recovery_constraints'], [])
         old = self.material(restored, 12, 'OLD_LICENSE_BODY')
@@ -232,6 +241,163 @@ class RecoveryPolicyTests(unittest.TestCase):
         self.assertEqual(len(restored.all(RECOVERY_KIND)), 1)
         self.assertEqual(manifest['restoration_content_policy']['recovery_policy_facts_added'], 1)
         self.assert_hidden(restored)
+
+    def test_storage_guard_unknown_source_keeps_metadata_and_notes_without_body(self):
+        with patch.object(self.store, 'now', return_value=self.day(3)):
+            self.store.update('source', self.source['id'], {'rights': None}, self.source['version'])
+        row = self.material(self.store, 4, 'UNKNOWN_STORAGE_BODY')
+        saved = self.store.get('evidence', row['id'])
+        self.assertEqual(saved['title'], '[fixture] restored evidence')
+        self.assertEqual(saved['notes'], 'USER_NOTE_KEEP')
+        self.assertEqual(saved['excerpt'], '')
+        self.assertEqual(saved['translation'], '')
+        self.assertIsNone(saved['content_fingerprint'])
+
+    def test_metadata_only_write_after_store_revocation_drops_copied_body(self):
+        self.shrink(None, {**GRANTED, 'store': False})
+        restored, _ = self.restore()
+        # The old unbounded archive precedes revocation. A metadata-only write
+        # cannot carry its old body forward into another stored version.
+        with patch.object(restored, 'now', return_value=self.day(5)):
+            row = knowledge.ingest(restored, {'source_id': self.source['id'], 'title': '[fixture] metadata update',
+                'url': self.row['url'], 'rights': GRANTED, 'notes': 'SECOND_USER_NOTE'})
+        current = restored.get('evidence', row['id'])
+        self.assertEqual(current['excerpt'], '')
+        self.assertEqual(current['translation'], '')
+        self.assertIsNone(current['content_fingerprint'])
+        self.assertIn('USER_NOTE_KEEP', current['notes'])
+        self.assertIn('SECOND_USER_NOTE', current['notes'])
+
+    def test_backup_restore_and_new_write_remove_legacy_channel_body_copies(self):
+        source = self.source['id']
+        legacy = {'source_id': source, 'url': self.row['url'], 'title': 'KEEP_CHANNEL_TITLE', 'notes': 'KEEP_CHANNEL_NOTES',
+            'excerpt': 'LEGACY_CHANNEL_BODY_SECRET', 'translation': 'LEGACY_CHANNEL_TRANSLATION_SECRET',
+            'content_fingerprint': 'LEGACY_CHANNEL_FINGERPRINT_SECRET'}
+        with patch.object(self.store, 'now', return_value=self.day(2)):
+            self.store.update('evidence', self.row['id'], {'channels': [legacy]}, self.row['version'])
+        package = self.archive(self.store, 2)
+        self.shrink()
+        restored, _ = self.restore(package=package)
+        for row in restored.history('evidence', self.row['id']):
+            for channel in row['channels']:
+                self.assertFalse(channel.get('excerpt'))
+                self.assertFalse(channel.get('translation'))
+                self.assertFalse(channel.get('content_fingerprint'))
+        preserved = restored.get('evidence', self.row['id'])['channels'][0]
+        self.assertEqual(preserved['title'], 'KEEP_CHANNEL_TITLE')
+        self.assertEqual(preserved['notes'], 'KEEP_CHANNEL_NOTES')
+        for path in restored.path.parent.glob('world-insight.sqlite*'):
+            self.assertNotIn(b'LEGACY_CHANNEL_BODY_SECRET', path.read_bytes())
+            self.assertNotIn(b'LEGACY_CHANNEL_TRANSLATION_SECRET', path.read_bytes())
+            self.assertNotIn(b'LEGACY_CHANNEL_FINGERPRINT_SECRET', path.read_bytes())
+        with patch.object(restored, 'now', return_value=self.day(10)):
+            current = restored.get('evidence', self.row['id'])
+            knowledge.handle(restored, 'PATCH', ['evidence', self.row['id']], {'expected_version': current['version'],
+                'channels': [legacy], 'notes': 'USER_NOTE_STILL_SAVED', 'excerpt': 'NEW_FORBIDDEN_BODY'}, {})
+        saved = restored.get('evidence', self.row['id'])
+        self.assertEqual(saved['excerpt'], '')
+        self.assertEqual(saved['notes'], 'USER_NOTE_STILL_SAVED')
+        self.assertEqual(saved['channels'][0]['title'], 'KEEP_CHANNEL_TITLE')
+        self.assertTrue(all(key not in saved['channels'][0] for key in rights.CONTENT_FIELDS))
+
+    def test_actual_http_expired_write_never_reaches_sqlite_body_fields(self):
+        self.shrink()
+        restored, _ = self.restore()
+        app = Application({**self.config, 'data_dir': restored.path.parent, 'db_path': restored.path}, restored, {'instance_id': 'fixture-http'})
+        server = ThreadingHTTPServer(('127.0.0.1', 8874), handler_class(app))
+        thread = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': .01})
+        thread.start()
+        try:
+            with patch.object(restored, 'now', return_value=self.day(10)):
+                connection = http.client.HTTPConnection('127.0.0.1', 8874, timeout=10)
+                connection.request('PATCH', '/api/evidence/' + self.row['id'], json.dumps({'expected_version': 1,
+                    'excerpt': 'HTTP_INPUT_BODY_MUST_NOT_BE_STORED', 'translation': 'HTTP_INPUT_TRANSLATION_MUST_NOT_BE_STORED',
+                    'notes': 'HTTP_USER_NOTE_MUST_SURVIVE'}), {'Content-Type': 'application/json', 'Origin': 'http://127.0.0.1:8874'})
+                response = connection.getresponse()
+                shown = json.loads(response.read())
+                connection.close()
+                self.assertEqual(response.status, 200, shown)
+                self.assertEqual(shown['excerpt'], '')
+                self.assertEqual(shown['notes'], 'HTTP_USER_NOTE_MUST_SURVIVE')
+            saved = restored.get('evidence', self.row['id'])
+            self.assertEqual(saved['excerpt'], '')
+            self.assertEqual(saved['translation'], '')
+            self.assertIsNone(saved['content_fingerprint'])
+            for path in restored.path.parent.glob('world-insight.sqlite*'):
+                self.assertNotIn(b'HTTP_INPUT_BODY_MUST_NOT_BE_STORED', path.read_bytes())
+                self.assertNotIn(b'HTTP_INPUT_TRANSLATION_MUST_NOT_BE_STORED', path.read_bytes())
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join()
+
+    def test_expired_split_does_not_copy_body_into_either_new_version(self):
+        channels = [{'source_id': self.source['id'], 'url': self.row['url']},
+            {'source_id': self.source['id'], 'url': 'https://fixture.example/alternate-appearance'}]
+        with patch.object(self.store, 'now', return_value=self.day(2)):
+            row = knowledge.handle(self.store, 'PATCH', ['evidence', self.row['id']], {'expected_version': self.row['version'], 'channels': channels}, {})
+        self.shrink()
+        with patch.object(self.store, 'now', return_value=self.day(10)):
+            result = knowledge.split(self.store, row['id'], {'expected_version': row['version'],
+                'channels': [channels[1]], 'reason': '[fixture] late split after source deadline'})
+        for side in ('original', 'split'):
+            saved = self.store.get('evidence', result[side]['id'])
+            self.assertEqual(saved['excerpt'], '')
+            self.assertEqual(saved['translation'], '')
+            self.assertIsNone(saved['content_fingerprint'])
+            self.assertEqual(saved['notes'], 'USER_NOTE_KEEP')
+        self.assertEqual(self.store.get('judgment', self.judgment['id'])['evidence_version_ids'], [self.ref])
+
+    def assert_storage_revoked_restore(self, permission):
+        channel = {'source_id': self.source['id'], 'url': self.row['url'], 'title': 'PRESERVE_CHANNEL_TITLE',
+            'notes': 'PRESERVE_CHANNEL_NOTE', 'excerpt': 'NO_STORE_CHANNEL_BODY',
+            'translation': 'NO_STORE_CHANNEL_TRANSLATION', 'content_fingerprint': 'NO_STORE_CHANNEL_HASH'}
+        with patch.object(self.store, 'now', return_value=self.day(2)):
+            self.store.update('evidence', self.row['id'], {'channels': [channel], 'excerpt': 'NO_STORE_TOP_BODY',
+                'translation': 'NO_STORE_TOP_TRANSLATION'}, self.row['version'])
+        legacy_package = self.archive(self.store, 2)
+        self.shrink(None, {**GRANTED, 'store': permission})
+        restored, manifest = self.restore(package=legacy_package)
+        policy = manifest['restoration_content_policy']
+        self.assertIn(self.row['id'], policy['storage_restricted_evidence_ids'])
+        self.assertEqual(policy['storage_restricted_version_count'], 2)
+        for row in restored.history('evidence', self.row['id']):
+            self.assertEqual(row['excerpt'], '')
+            self.assertEqual(row['translation'], '')
+            self.assertIsNone(row['content_fingerprint'])
+            self.assertEqual(row['notes'], 'USER_NOTE_KEEP')
+            for channel in row.get('channels', []):
+                self.assertFalse(channel.get('excerpt'))
+                self.assertFalse(channel.get('translation'))
+                self.assertFalse(channel.get('content_fingerprint'))
+        current_channel = restored.get('evidence', self.row['id'])['channels'][0]
+        self.assertEqual(current_channel['title'], 'PRESERVE_CHANNEL_TITLE')
+        self.assertEqual(current_channel['notes'], 'PRESERVE_CHANNEL_NOTE')
+        self.assertEqual(restored.get('judgment', self.judgment['id'])['evidence_version_ids'], [self.ref])
+        for path in restored.path.parent.glob('world-insight.sqlite*'):
+            for token in (b'NO_STORE_TOP_BODY', b'NO_STORE_TOP_TRANSLATION', b'NO_STORE_CHANNEL_BODY', b'NO_STORE_CHANNEL_TRANSLATION', b'NO_STORE_CHANNEL_HASH'):
+                self.assertNotIn(token, path.read_bytes())
+        self.assertTrue(restored.integrity()['ok'])
+
+    def test_restore_revoked_store_false_removes_all_historical_body_copies(self):
+        self.assert_storage_revoked_restore(False)
+
+    def test_restore_metadata_only_storage_removes_all_historical_body_copies(self):
+        self.assert_storage_revoked_restore('metadata')
+
+    def test_export_restriction_and_trash_do_not_revoke_legal_backup_storage(self):
+        with patch.object(self.store, 'now', return_value=self.day(2)):
+            updated = self.store.update('evidence', self.row['id'], {'excerpt': 'EXPORT_ONLY_BODY_TOKEN'}, self.row['version'])
+        self.shrink(None, {**GRANTED, 'export': False})
+        with patch.object(self.store, 'now', return_value=self.day(4)):
+            exported = research.export(self.store, {'topic_id': self.topic['id']})
+        self.assertNotIn('EXPORT_ONLY_BODY_TOKEN', json.dumps(exported))
+        # A legal recovery copy must survive even while its source record is in trash.
+        self.store.update('evidence', self.row['id'], {'deleted': True}, updated['version'])
+        package = self.archive(self.store, 4)
+        restored, manifest = self.restore(5, package)
+        self.assertEqual(restored.get('evidence', self.row['id'])['excerpt'], 'EXPORT_ONLY_BODY_TOKEN')
+        self.assertEqual(manifest['restoration_content_policy']['storage_restricted_version_count'], 0)
 
 
 if __name__ == '__main__':

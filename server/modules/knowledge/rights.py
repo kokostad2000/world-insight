@@ -237,6 +237,23 @@ def effective_policy(record, context, action='display'):
         'action': action, 'evaluated_at': context['evaluated_at'], 'reasons': unique}
 
 
+def strip_licensed_content(record):
+    """Pure content-only removal, including known legacy channel copies.
+
+    Authored notes, metadata titles and provenance survive. Channels have never
+    been a second body storage API; only the three recognized body fields change.
+    """
+    item = copy.deepcopy(record)
+    for field in CONTENT_FIELDS:
+        item[field] = None if field == 'content_fingerprint' else ''
+    for channel in item.get('channels') or []:
+        if isinstance(channel, dict):
+            for field in CONTENT_FIELDS:
+                if field in channel:
+                    channel[field] = None if field == 'content_fingerprint' else ''
+    return item
+
+
 def present_evidence(record, context, action='display'):
     """Return an independent sanitized view, preserving notes and exact version IDs.
 
@@ -251,14 +268,7 @@ def present_evidence(record, context, action='display'):
     item['content_expires_at'] = policy['content_expires_at']
     item['content_policy'] = policy
     if not policy['content_allowed']:
-        for field in CONTENT_FIELDS:
-            item[field] = None if field == 'content_fingerprint' else ''
-        # Legacy imports may have retained body copies inside appearance channels.
-        for channel in item.get('channels') or []:
-            if isinstance(channel, dict):
-                for field in CONTENT_FIELDS:
-                    if field in channel:
-                        channel[field] = None if field == 'content_fingerprint' else ''
+        item = strip_licensed_content(item)
         item['content_restricted'] = True
         if action == 'export':
             item['export_content_omitted'] = True
