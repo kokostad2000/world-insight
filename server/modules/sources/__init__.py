@@ -415,6 +415,10 @@ def handle(store, method, segments, body, query):
         with store.transaction():
             source = store.get('source', segments[1])
             data = _validate(body, source)
+            if 'rights' in body or 'retention_days' in body:
+                data['policy_reviewed_at'] = store.now()
+                data['policy_reviewed_rights'] = dict(data['rights'])
+                data['policy_reviewed_retention_days'] = data.get('retention_days')
             data['next_check'] = None
             data['status'] = 'ready' if data['enabled'] and data['adapter'] in FREE_ADAPTERS else ('manual' if data['adapter'] == 'manual' else ('not_configured' if data['adapter'] in {'ai', 'paid'} else 'disabled'))
             updated = store.update('source', source['id'], data, body.get('expected_version'))
