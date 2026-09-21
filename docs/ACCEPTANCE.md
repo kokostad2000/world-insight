@@ -63,7 +63,7 @@
 | AC-33 | 迁移中断，以及迁移后切换前健康检查失败 | 恢复兼容的旧程序与数据库／必要附件；旧议题可读，错误可见，重试不重复迁移 | 通过 | [运维](handoffs/ops.md)实际updater SIGKILL/健康失败/迁移失败均成对恢复；[主线浏览器](evidence/browser-integration-round-two.md)回退后编辑v5、20条阅读状态保留。 |
 | AC-34 | 升级成功并产生新记录后请求回退 | 不自动用旧快照覆盖；先保留当前状态并核对兼容性，无法安全回退时明确停止，新增记录仍可找回 | 通过 | [实际升级后拒绝回退](handoffs/mac-acceptance-remaining.md)保持新写入，读取日志current_backup并恢复空目录，新增记录及附件hash正确；[root浏览器继续编辑](evidence/mac-browser-readstate-restore.json)。 |
 | AC-35 | 已完成依赖下载后断开 GitHub，或更新下载失败；检查正常 Git 提交范围 | 本地历史阅读仍可用，更新失败不破坏旧版本；密钥、数据库、附件和备份未被纳入追踪 | 通过 | [实际Git更新下载失败](evidence/mac-update-network-failure.json)后程序选择和研究记录hash不变；[本地页面与跟踪范围复核](evidence/offline-tracked-scope.json)在`--no-scheduler`实例重载正式页面成功，Git已跟踪文件无数据库/附件/备份/密钥，忽略规则命中。网络失败为单命令不可达代理，不冒充整机断网。 |
-| AC-36 | 本机睡眠后恢复，存在采集中断区间 | 调度器只恢复一份，有限预算内补采；超出上游历史支持的区间标为缺口，旧事件不会伪装成当前发生 | 未执行 | [真实三进程调度锁](handoffs/acceptance-gap-tests.md)互斥与SIGKILL释放通过；模拟时钟补采/缺口已有回归；实际Mac睡眠唤醒尚未执行。 |
+| AC-36 | 本机睡眠后恢复，存在采集中断区间 | 调度器只恢复一份，有限预算内补采；超出上游历史支持的区间标为缺口，旧事件不会伪装成当前发生 | 未执行 | [真实三进程调度锁](handoffs/acceptance-gap-tests.md)互斥与SIGKILL释放通过；模拟时钟补采/缺口已有回归。[实际睡眠执行入口](evidence/mac-sleep-acceptance-pending.md)已隔离预算、来源、端口和取证字段，但真实Mac睡眠660秒尚未执行。 |
 
 ## 附加门槛
 
