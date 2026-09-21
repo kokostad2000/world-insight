@@ -12,10 +12,11 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from server.platform.errors import ApiError
-from . import adapters
+from . import adapters, gkg
 
 UTC = timezone.utc
-FREE_ADAPTERS = {'gdelt', 'rss', 'world_bank'}
+FREE_ADAPTERS = {'gdelt', 'gdelt_gkg', 'rss', 'world_bank'}
+GDELT_ADAPTERS = {'gdelt', 'gdelt_gkg'}
 CONFIG_KEYS = {'feed_url', 'query', 'countries', 'indicators', 'topic_ids'}
 SOURCE_FIELDS = {'name', 'adapter', 'domain', 'languages', 'regions', 'license_url', 'checked_at',
                  'rights', 'enabled', 'budget_daily', 'interval_seconds', 'config', 'retention_days'}
@@ -53,6 +54,8 @@ def seed_sources(store):
     definitions = [
         ('source-gdelt', 'GDELT 新闻发现', 'gdelt', 'api.gdeltproject.org',
          'https://gdeltproject.org/about.html', 1800, 500, {'query': '', 'topic_ids': []}),
+        ('source-gdelt-gkg', 'GDELT GKG 最新批次发现', 'gdelt_gkg', 'data.gdeltproject.org',
+         'https://gdeltproject.org/about.html', 1800, 500, {'topic_ids': []}),
         ('source-fed', '美国联邦储备委员会 RSS', 'rss', 'www.federalreserve.gov',
          'https://www.federalreserve.gov/disclaimer.htm', 1800, 72,
          {'feed_url': 'https://www.federalreserve.gov/feeds/press_all.xml', 'topic_ids': []}),
@@ -67,10 +70,12 @@ def seed_sources(store):
         for sid, name, adapter, domain, license_url, interval, budget, config in definitions:
             if _get(store, 'source', sid):
                 continue
-            enabled = adapter in FREE_ADAPTERS or adapter == 'manual'
+            enabled = (adapter in FREE_ADAPTERS and adapter != 'gdelt_gkg') or adapter == 'manual'
             status = ('not_configured' if adapter == 'gdelt' else 'ready') if adapter in FREE_ADAPTERS else ('manual' if adapter == 'manual' else 'not_configured')
+            if adapter == 'gdelt_gkg':
+                status = 'disabled'
             store.create('source', {'name': name, 'adapter': adapter, 'domain': domain,
-                'languages': ['en'] if adapter != 'gdelt' else ['multilingual'], 'regions': ['global'],
+                'languages': ['en'] if adapter not in GDELT_ADAPTERS else ['multilingual'], 'regions': ['global'],
                 'license_url': license_url, 'checked_at': '2026-09-20',
                 'rights': dict(rights) if adapter in FREE_ADAPTERS else {**rights, 'fetch': False},
                 'enabled': enabled, 'budget_daily': budget, 'interval_seconds': interval,
@@ -78,7 +83,7 @@ def seed_sources(store):
                 'config': config, 'status': status, 'last_attempt': None, 'last_success': None,
                 'data_as_of': None, 'next_check': None, 'requests_today': 0,
                 'budget_date': None, 'last_error': None, 'coverage_gaps': [],
-                'license_note': '仅采集许可范围内的元数据；不抓新闻正文和图片。AI 默认禁止。',
+                'license_note': gkg.NOTE if adapter == 'gdelt_gkg' else '仅采集许可范围内的元数据；不抓新闻正文和图片。AI 默认禁止。',
                 'cost_type': 'free' if adapter in FREE_ADAPTERS else ('manual' if adapter == 'manual' else 'disabled'),
             }, record_id=sid)
 
@@ -142,6 +147,8 @@ def _validate(data, existing=None):
         query = config.get('query', '')
         if not isinstance(query, str) or len(query) > 500 or any(ord(x) < 32 for x in query):
             raise ApiError(400, 'invalid_query', 'GDELT 查询须为最多 500 字符的文本。')
+    if source['adapter'] == 'gdelt_gkg' and set(config) - {'topic_ids'}:
+        raise ApiError(400, 'invalid_configuration', 'GKG 仅配置允许的 topic_ids；按议题关键词与排除词本地匹配，不接受 DOC 查询语法。')
     if source['adapter'] == 'world_bank':
         countries = config.get('countries', ['CHN', 'USA'])
         indicators = config.get('indicators', list(adapters.INDICATORS))
@@ -156,12 +163,30 @@ def _validate(data, existing=None):
         if not isinstance(source[key], list) or any(not isinstance(x, str) for x in source[key]):
             raise ApiError(400, 'invalid_configuration', f'{key} 须为文本数组。')
     # Provider endpoints are fixed by code, never user controlled domains.
-    source['domain'] = {'gdelt': 'api.gdeltproject.org', 'rss': 'www.federalreserve.gov', 'world_bank': 'api.worldbank.org'}.get(source['adapter'], source.get('domain', ''))
+    source['domain'] = {'gdelt': 'api.gdeltproject.org', 'gdelt_gkg': 'data.gdeltproject.org', 'rss': 'www.federalreserve.gov', 'world_bank': 'api.worldbank.org'}.get(source['adapter'], source.get('domain', ''))
     return {key: source[key] for key in SOURCE_FIELDS if key in source}
 
 
 def _configured(source):
     return source.get('enabled') and source['adapter'] in FREE_ADAPTERS and source.get('rights', {}).get('fetch') and source.get('rights', {}).get('store')
+
+
+def _provider_budget(store, source, now):
+    family = ([item for item in store.all('source', include_deleted=True) if item['adapter'] in GDELT_ADAPTERS]
+              if source['adapter'] in GDELT_ADAPTERS else [source])
+    enabled = [item for item in family if _configured(item) and not item.get('deleted')]
+    return {'provider': 'gdelt' if source['adapter'] in GDELT_ADAPTERS else source['adapter'],
+            'provider_requests_today': sum(item.get('requests_today', 0) for item in family if item.get('budget_date') == now[:10]),
+            'provider_budget_daily': min((item['budget_daily'] for item in enabled), default=source['budget_daily']),
+            'provider_min_interval_seconds': 6 if source['adapter'] in GDELT_ADAPTERS else 0,
+            'provider_last_attempt': max((item['last_attempt'] for item in family if item.get('last_attempt')), key=_date, default=None)}
+
+
+def _source_view(store, source):
+    now = store.now()
+    return {**source, 'requests_today': source.get('requests_today', 0) if source.get('budget_date') == now[:10] else 0,
+            **_provider_budget(store, source, now),
+            **({'discovery_note': gkg.NOTE} if source['adapter'] == 'gdelt_gkg' else {})}
 
 
 def _selected(source, topic):
@@ -180,8 +205,9 @@ def _country_scope(source, topic=None):
 def _targets(store, source):
     topics = store.all('topic')
     if not topics and not source.get('config', {}).get('topic_ids'):
-        return [None]
+        return [] if source['adapter'] == 'gdelt_gkg' else [None]
     return [topic for topic in topics if topic.get('status') == 'active' and _selected(source, topic)
+            and (source['adapter'] != 'gdelt_gkg' or any(word.strip() for word in topic.get('keywords', [])))
             and (source['adapter'] != 'world_bank' or _country_scope(source, topic))]
 
 
@@ -194,6 +220,8 @@ def _scope(store, source, topic_id):
             raise ApiError(400, 'source_outside_topic_scope', '此来源不在议题所选来源与来源允许议题的交集中，未安排采集。')
         if source['adapter'] == 'world_bank' and not _country_scope(source, topic):
             raise ApiError(400, 'world_bank_country_scope_empty', '请明确选择与 WDI 来源国家配置有交集的议题国家；未推断国家，未安排采集。')
+        if source['adapter'] == 'gdelt_gkg' and not any(word.strip() for word in topic.get('keywords', [])):
+            raise ApiError(400, 'query_required', 'GKG 需要活动议题的明确关键词；不推断或抓取全量新闻。')
         return topic
     if _targets(store, source) != [None]:
         raise ApiError(400, 'source_outside_topic_scope', '当前来源没有允许全局采集的范围，请选择获准的活动议题。')
@@ -265,6 +293,8 @@ def enqueue(store, source_id, topic_id=None):
         prior_end = job.get('covered_until') if same_scope else None
         gaps = list(job.get('coverage_gaps', [])) if same_scope else []
         checkpoint = {'page': 1}
+        if source['adapter'] == 'gdelt_gkg':
+            checkpoint = {'phase': 'index'}
         if source['adapter'] == 'gdelt':
             end = _date(now)
             start = _date(prior_end) - timedelta(minutes=30) if prior_end else end - timedelta(days=1)
@@ -308,12 +338,15 @@ def coverage(store, topic_id=None):
             continue
         targets = [topic] if topic else _targets(store, source)
         # Explicitly selected WDI without a country intersection is unavailable, not a successful empty query.
-        if not targets and source['adapter'] == 'world_bank':
+        if not targets and source['adapter'] in {'world_bank', 'gdelt_gkg'}:
             targets = [candidate for candidate in store.all('topic')
                        if candidate.get('status') == 'active' and _selected(source, candidate)]
+            if not targets and source['adapter'] == 'gdelt_gkg' and not store.all('topic'):
+                targets = [None]
         if not targets:
             continue
         country_scope_empty = source['adapter'] == 'world_bank' and any(target and not _country_scope(source, target) for target in targets)
+        keyword_scope_empty = source['adapter'] == 'gdelt_gkg' and any(not target or not any(word.strip() for word in target.get('keywords', [])) for target in targets)
         jobs = []
         for target in targets:
             job = _get(store, 'collection_job', _job_id(source['id'], target['id'] if target else None))
@@ -327,7 +360,7 @@ def coverage(store, topic_id=None):
                       and now - _date(job['last_success']) <= timedelta(seconds=source['interval_seconds'] * 2)
                       and not job.get('last_error') and job['state'] != 'cancelled'
                       and job.get('completed_scope_signature') == job.get('scope_signature')]
-        fresh = not country_scope_empty and len(fresh_jobs) == len(targets)
+        fresh = not country_scope_empty and not keyword_scope_empty and len(fresh_jobs) == len(targets)
         pending = any(job['state'] in RUNNING for job in jobs)
         status = ('ready' if fresh else ('failed' if any(job.get('last_error') for job in jobs)
                   else ('stale' if last_success else 'not_configured')))
@@ -336,11 +369,12 @@ def coverage(store, topic_id=None):
         result_counts = [job.get('last_result_count') for job in jobs]
         sources.append({'id': source['id'], 'name': source['name'], 'adapter': source['adapter'],
             'status': status, 'data_status': 'fresh' if fresh else ('stale' if last_success else 'unavailable'),
-            'fresh_scope_count': 0 if country_scope_empty else len(fresh_jobs),
+            'fresh_scope_count': 0 if country_scope_empty or keyword_scope_empty else len(fresh_jobs),
             'last_attempt': source.get('last_attempt'), 'last_success': last_success,
             'data_as_of': max((job.get('data_as_of') for job in jobs if job.get('data_as_of')), default=None),
             'next_check': source.get('next_check'),
             'reason': ('议题尚未明确选择与 WDI 来源配置相交的国家，未进行国家背景采集。' if country_scope_empty
+                       else 'GKG 需要明确活动议题及关键词，未进行全量新闻采集。' if keyword_scope_empty
                        else next((job['last_error'] for job in jobs if job.get('last_error')), None)),
             'coverage_gaps': gaps,
             'last_result_count': sum(result_counts) if len(jobs) == len(targets) and all(x is not None for x in result_counts) else None,
@@ -367,16 +401,14 @@ def handle(store, method, segments, body, query):
         return enqueue(store, segments[1], body.get('topic_id'))
     if len(segments) == 1 and method == 'GET':
         result = store.list('source', limit=query.get('limit', 100), offset=query.get('offset', 0))
-        for source in result['items']:
-            if source.get('budget_date') != store.now()[:10]:
-                source['requests_today'] = 0
+        result['items'] = [_source_view(store, source) for source in result['items']]
         return result
     if len(segments) == 1 and method == 'POST':
         data = _validate(body)
         data.update({'status': 'ready' if data['enabled'] and data['adapter'] in FREE_ADAPTERS else ('manual' if data['adapter'] == 'manual' else 'not_configured'), 'last_attempt': None, 'last_success': None, 'data_as_of': None, 'next_check': None, 'requests_today': 0, 'budget_date': None, 'last_error': None})
         return store.create('source', data)
     if len(segments) == 2 and method == 'GET':
-        return store.get('source', segments[1])
+        return _source_view(store, store.get('source', segments[1]))
     if len(segments) == 3 and segments[2] == 'history' and method == 'GET':
         return {'items': store.history('source', segments[1])}
     if len(segments) == 2 and method == 'PATCH':
@@ -494,10 +526,10 @@ class Scheduler:
         if schedule:
             self._schedule_due()
         now = self.store.now()
-        jobs = [job for job in self.store.all('collection_job') if job['state'] in RUNNING and (not job.get('next_attempt') or job['next_attempt'] <= now)]
+        jobs = [job for job in self.store.all('collection_job') if job['state'] in RUNNING and (not job.get('next_attempt') or _date(job['next_attempt']) <= _date(now))]
         if not jobs:
             return None
-        job = sorted(jobs, key=lambda item: (item.get('next_attempt') or '', item['id']))[0]
+        job = sorted(jobs, key=lambda item: (_date(item.get('next_attempt') or now), item['id']))[0]
         with self.store.transaction():
             job = self.store.get('collection_job', job['id'])
             source = self.store.get('source', job['source_id'])
@@ -505,16 +537,12 @@ class Scheduler:
                 return _patch(self.store, 'collection_job', job, {'state': 'cancelled', 'last_error': '来源已停用。'})
             if self._scope_changed(source, job):
                 return _patch(self.store, 'collection_job', job, {'state': 'cancelled', 'last_error': '议题或来源采集范围已改变；旧任务取消，未发出请求。'})
-            # Source-wide spacing and request budget include all topics, manual calls and retries.
-            if source['adapter'] == 'gdelt' and source.get('last_attempt') and _date(now) - _date(source['last_attempt']) < timedelta(seconds=6):
-                return _patch(self.store, 'collection_job', job, {'state': 'retry', 'next_attempt': _later(source['last_attempt'], 6)})
-            count = source.get('requests_today', 0) if source.get('budget_date') == now[:10] else 0
-            if count >= source['budget_daily']:
-                tomorrow = _stamp((_date(now) + timedelta(days=1)).replace(hour=0, minute=0, second=1, microsecond=0))
-                _patch(self.store, 'source', source, {'status': 'quota_exhausted', 'last_error': '本地每日免费请求预算已用尽。', 'next_check': tomorrow})
-                return _patch(self.store, 'collection_job', job, {'state': 'retry', 'next_attempt': tomorrow, 'last_error': '请求预算已用尽，检查点保留。'})
-            source = _patch(self.store, 'source', source, {'requests_today': count + 1, 'budget_date': now[:10], 'last_attempt': now})
-            job = _patch(self.store, 'collection_job', job, {'state': 'running', 'attempts': job['attempts'] + 1, 'request_count': job['request_count'] + 1})
+            if source['adapter'] != 'gdelt_gkg':
+                source, job, reserved = self._reserve_request(source, job, now)
+                if not reserved:
+                    return job
+        if source['adapter'] == 'gdelt_gkg':
+            return self._tick_gkg(source, job, now)
         # No database transaction or Store lock while waiting for upstream.
         if in_maintenance(self.store):
             return job
@@ -527,6 +555,97 @@ class Scheduler:
             return self._succeed(source, job, parsed, now)
         except Exception as exc:
             return self._fail(source, job, exc, now)
+
+    def _reserve_request(self, source, job, now):
+        """Caller holds the Store transaction. All GDELT variants share one budget."""
+        budget = _provider_budget(self.store, source, now)
+        attempt = budget['provider_last_attempt']
+        interval = budget['provider_min_interval_seconds']
+        if interval and attempt and _date(now) - _date(attempt) < timedelta(seconds=interval):
+            job = _patch(self.store, 'collection_job', job, {'state': 'retry', 'next_attempt': _later(attempt, interval)})
+            return source, job, False
+        if budget['provider_requests_today'] >= budget['provider_budget_daily']:
+            tomorrow = _stamp((_date(now) + timedelta(days=1)).replace(hour=0, minute=0, second=1, microsecond=0))
+            source = _patch(self.store, 'source', source, {'status': 'quota_exhausted', 'last_error': '本地提供者共享每日免费请求预算已用尽。', 'next_check': tomorrow})
+            job = _patch(self.store, 'collection_job', job, {'state': 'retry', 'next_attempt': tomorrow, 'last_error': '请求预算已用尽，检查点保留。'})
+            return source, job, False
+        count = source.get('requests_today', 0) if source.get('budget_date') == now[:10] else 0
+        source = _patch(self.store, 'source', source, {'requests_today': count + 1, 'budget_date': now[:10], 'last_attempt': now})
+        job = _patch(self.store, 'collection_job', job, {'state': 'running', 'attempts': job['attempts'] + 1, 'request_count': job['request_count'] + 1})
+        return source, job, True
+
+    def _tick_gkg(self, source, job, now):
+        cache = gkg.Cache(self.store.data_dir)
+        with cache.lock() as acquired:
+            if not acquired or in_maintenance(self.store):
+                return job
+            try:
+                index = cache.read('index.json') or {}
+                item = job.get('checkpoint', {}).get('manifest')
+                if item:
+                    item = gkg.manifest(item)
+                else:
+                    intervals = [item['interval_seconds'] for item in self.store.all('source')
+                                 if item['adapter'] == 'gdelt_gkg' and _configured(item)]
+                    if index.get('checked_at') and _date(now) - _date(index['checked_at']) < timedelta(seconds=min(intervals, default=1800)):
+                        item = gkg.manifest(index['manifest'])
+                rows = cache.rows(item) if item else None
+                if rows is not None:
+                    return self._succeed(source, job, gkg.result(source, job, item, rows, now), now)
+                failure = cache.read('retry.json') or {}
+                if failure.get('retry_at') and _date(failure['retry_at']) > _date(now):
+                    return self._fail(source, job, adapters.FetchError(failure['code'], failure['message'],
+                                      max(1, int((_date(failure['retry_at']) - _date(now)).total_seconds()))), now)
+                with self.store.transaction():
+                    source = self.store.get('source', source['id'])
+                    job = self.store.get('collection_job', job['id'])
+                    if not _configured(source) or self._scope_changed(source, job):
+                        return _patch(self.store, 'collection_job', job, {'state': 'cancelled', 'last_error': 'GKG 采集范围已改变。'})
+                    if item and job.get('checkpoint', {}).get('manifest') != item:
+                        job = _patch(self.store, 'collection_job', job, {'checkpoint': {'phase': 'zip', 'manifest': item}})
+                    source, job, reserved = self._reserve_request(source, job, now)
+                if not reserved or in_maintenance(self.store):
+                    return job
+                url = item['url'] if item else gkg.INDEX_URL
+                response = (adapters.fetch(url, {}, max_bytes=gkg.ZIP_LIMIT if item else gkg.INDEX_LIMIT)
+                            if self.fetcher is adapters.fetch else self.fetcher(url, {}))
+                if in_maintenance(self.store):
+                    return job
+                is_index = item is None
+                if is_index:
+                    item = gkg.parse_index(response)
+                    rows = cache.rows(item)
+                else:
+                    rows = gkg.parse_zip(response, item)
+                # An in-flight response is not permission to save a cache after revocation.
+                with self.store.transaction():
+                    if in_maintenance(self.store):
+                        return job
+                    current_source = self.store.get('source', source['id'])
+                    current_job = self.store.get('collection_job', job['id'])
+                    if current_job.get('scope_signature') != job.get('scope_signature'):
+                        return current_job
+                    if not _configured(current_source) or self._scope_changed(current_source, job):
+                        return _patch(self.store, 'collection_job', current_job,
+                                      {'state': 'cancelled', 'last_error': '请求期间 GKG 范围或许可变化，本批次未缓存或入库。'})
+                    if is_index:
+                        cache.write('index.json', {'checked_at': now, 'manifest': item})
+                        # Exact index selection survives a restart or a newer global index.
+                        job = _patch(self.store, 'collection_job', current_job, {'checkpoint': {'phase': 'zip', 'manifest': item},
+                                     'state': 'queued', 'next_attempt': _later(now, 6), 'attempts': 0})
+                    else:
+                        cache.save_rows(item, rows)
+                    cache.write('retry.json', {})
+                if rows is None:
+                    return job
+                return self._succeed(source, job, gkg.result(source, job, item, rows, now), now)
+            except Exception as exc:
+                failed = self._fail(source, job, exc, now)
+                if not in_maintenance(self.store) and failed.get('state') == 'retry':
+                    cache.write('retry.json', {'retry_at': failed['next_attempt'],
+                        'code': exc.code if isinstance(exc, adapters.FetchError) else 'processing_failed',
+                        'message': failed['last_error']})
+                return failed
 
     def _succeed(self, source, job, parsed, now):
         if in_maintenance(self.store):
@@ -556,6 +675,8 @@ class Scheduler:
                 observation_sink(self.store, payload)
             checkpoint = dict(job.get('checkpoint', {}))
             gaps = list(job.get('coverage_gaps', []))
+            if parsed.get('coverage_gap'):
+                gaps = [parsed['coverage_gap']]
             complete = True
             if parsed['next_page']:
                 checkpoint['page'] = parsed['next_page']
@@ -575,7 +696,7 @@ class Scheduler:
                 'last_result_count': current_job.get('last_result_count', 0) if parsed['not_modified'] else job.get('cycle_result_count', 0) + len(parsed['evidence']),
                 'cycle_result_count': job.get('cycle_result_count', 0) + len(parsed['evidence']),
                 'last_success': now, 'data_as_of': current_job.get('data_as_of') if parsed['not_modified'] else parsed['data_as_of'],
-                'next_attempt': _later(now, 6 if source['adapter'] == 'gdelt' else 1),
+                'next_attempt': _later(now, 6 if source['adapter'] in GDELT_ADAPTERS else 1),
                 'coverage_gaps': gaps, 'gap_start': gaps[0]['start'] if gaps else None,
                 'gap_end': gaps[-1]['end'] if gaps else None}
             if complete:

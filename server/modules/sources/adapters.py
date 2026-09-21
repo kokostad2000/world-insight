@@ -14,7 +14,7 @@ from pathlib import Path
 from urllib.parse import urlencode, urlsplit
 
 UTC = timezone.utc
-ALLOWED_HOSTS = {'api.gdeltproject.org', 'www.federalreserve.gov', 'api.worldbank.org'}
+ALLOWED_HOSTS = {'api.gdeltproject.org', 'data.gdeltproject.org', 'www.federalreserve.gov', 'api.worldbank.org'}
 INDICATORS = {'NY.GDP.MKTP.CD': ('GDP（现价美元）', 'USD'), 'SP.POP.TOTL': ('人口总数', 'persons')}
 
 
@@ -40,7 +40,7 @@ def public_host(host):
     return sorted(addresses, key=lambda item: ':' in item)[0]
 
 
-def fetch(url, headers=None):
+def fetch(url, headers=None, *, max_bytes=2097152):
     """Use system curl's trusted CA. No redirects, credentials or arbitrary hosts."""
     parsed = urlsplit(url)
     if parsed.scheme != 'https' or parsed.username or parsed.password or parsed.port not in (None, 443):
@@ -54,7 +54,7 @@ def fetch(url, headers=None):
     with tempfile.TemporaryDirectory(prefix='world-insight-fetch-') as directory:
         header_file = Path(directory) / 'headers'
         args = ['/usr/bin/curl', '--disable', '--silent', '--show-error', '--proto', '=https',
-                '--connect-timeout', '8', '--max-time', '20', '--max-filesize', '2097152',
+                '--connect-timeout', '8', '--max-time', '20', '--max-filesize', str(max_bytes),
                 '--max-redirs', '0', '--resolve', f'{parsed.hostname}:443:{address}',
                 '--user-agent', 'WorldInsight/0.1 (personal research; metadata only)',
                 '--dump-header', str(header_file), '--write-out', '\nWI_HTTP_STATUS:%{http_code}']
@@ -71,8 +71,8 @@ def fetch(url, headers=None):
             code = 'timeout' if result.returncode == 28 else 'network_failed'
             raise FetchError(code, f'来源请求未完成（curl {result.returncode}），请检查网络和系统证书。')
         body, _, status = result.stdout.rpartition(b'\nWI_HTTP_STATUS:')
-        if len(body) > 2097152:
-            raise FetchError('too_large', '来源响应超过 2 MiB，已拒绝解析。')
+        if len(body) > max_bytes:
+            raise FetchError('too_large', '来源响应超过此接口的大小上限，已拒绝解析。')
         response_headers = {}
         for line in header_file.read_text(errors='replace').splitlines():
             if ':' in line:
