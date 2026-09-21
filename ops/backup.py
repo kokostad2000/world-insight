@@ -108,6 +108,61 @@ def _source_history(connection):
     return history
 
 
+def _recovery_records(connection, external, restored_at):
+    """Prepare immutable constraints for a staged DB, without editing sources.
+
+    Do not open Store here: its constructor can migrate an old checkpoint and
+    recursively invoke this sanitizer. The caller inserts only this new kind in
+    the same records/versions transaction as the existing snapshot redaction.
+    """
+    from server.modules.knowledge.policy_period import RECOVERY_KIND, _time, recovery_policy_end
+    target = _source_history(connection)
+    upstream = _source_history(external)
+    known = {row[0] for row in connection.execute("SELECT id FROM records WHERE kind=?", (RECOVERY_KIND,))}
+    def signature(row):
+        return json.dumps([row.get('rights'), row.get('retention_days')], sort_keys=True, ensure_ascii=False)
+    def identity(row):
+        return (row['id'], row.get('version'), row.get('updated_at'), signature(row))
+    present = {identity(row) for history in target.values() for row in history}
+    prepared = []
+    for source_id, history in upstream.items():
+        if source_id not in target:
+            continue
+        ordered = sorted(history, key=lambda row: row.get('version', 0))
+        dates = [_time(row.get('updated_at') or (row.get('created_at') if row.get('version', 1) == 1 else None)) for row in ordered]
+        reliable = all(dates) and all(left <= right for left, right in zip(dates, dates[1:]))
+        for index, row in enumerate(ordered):
+            rights = row.get('rights')
+            restricted = row.get('retention_days') is not None or not isinstance(rights, dict) or any(
+                rights.get(action) is not True and rights.get(action) not in ('full', 'allowed') for action in ('store', 'display', 'export'))
+            if not restricted or identity(row) in present:
+                continue
+            next_policy = next((later for later in range(index + 1, len(ordered)) if signature(ordered[later]) != signature(row)), None)
+            payload = {'source_id': source_id, 'source_version': row.get('version', 0),
+                'source_created_at': row.get('created_at'), 'rights': rights, 'retention_days': row.get('retention_days'),
+                'policy_effective_at': dates[index].isoformat(timespec='microseconds').replace('+00:00', 'Z') if reliable else None}
+            policy_hash = hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+            prepared.append({**payload, 'policy_hash': policy_hash, 'restored_at': restored_at,
+                'policy_end_at': dates[next_policy].isoformat(timespec='microseconds').replace('+00:00', 'Z') if reliable and next_policy is not None else None,
+                'reason': '恢复旧备份时保留当前数据库曾适用的较严来源正文约束；来源配置与原历史不覆盖'})
+    # Carry prior recoveries forward, including a later explicitly reviewed end.
+    # A later immutable fact may close an earlier interval; both audits survive.
+    for (raw,) in external.execute("SELECT data FROM records WHERE kind=?", (RECOVERY_KIND,)):
+        fact = json.loads(raw)
+        if fact['source_id'] in target:
+            prepared.append({key: value for key, value in fact.items() if key not in ('id', 'version', 'created_at', 'updated_at')} |
+                {'policy_end_at': recovery_policy_end(fact, upstream.get(fact['source_id'], []))})
+    records = []
+    for fact in prepared:
+        key = hashlib.sha256(json.dumps([fact['policy_hash'], fact.get('policy_end_at')], ensure_ascii=False).encode()).hexdigest()
+        record_id = 'recovery-policy-' + key
+        if record_id in known:
+            continue
+        known.add(record_id)
+        records.append({**fact, 'id': record_id, 'version': 1, 'created_at': restored_at, 'updated_at': restored_at})
+    return records
+
+
 def sanitize_snapshot(path, policy_source=None, observed_at=None):
     """Redact only a disposable/staged SQLite copy; never call on the live database.
 
@@ -121,24 +176,23 @@ def sanitize_snapshot(path, policy_source=None, observed_at=None):
         raise OpsError("净化目标必须是独立快照，不能在原始研究数据库上运行")
     db = sqlite3.connect(str(path))
     try:
-        from server.modules.knowledge.policy_period import first_saved_at, material_history, material_source_ids, retention_cap
+        from server.modules.knowledge.policy_period import RECOVERY_KIND, first_saved_at, material_history, material_source_ids, retention_cap, source_histories
         # Keep no old content in rollback/WAL/freelist pages after sanitization.
         db.execute("PRAGMA journal_mode=DELETE")
         db.execute("PRAGMA secure_delete=ON")
-        histories_by_source = _source_history(db)
-        external_history = {}
+        _source_history(db)  # Validate native policies before creating any facts.
+        recovered = []
         if policy_source is not None and Path(policy_source).is_file():
             external = sqlite3.connect(f"file:{Path(policy_source)}?mode=ro", uri=True)
             try:
-                external_history = _source_history(external)
+                recovered = _recovery_records(db, external, observed_at or now())
             finally:
                 external.close()
-            for source_id, history in external_history.items():
-                histories_by_source.setdefault(source_id, []).extend(history)
         rows = [(kind, record_id, version, json.loads(raw)) for kind, record_id, version, raw in db.execute("SELECT kind,id,version,data FROM versions")]
+        rows.extend((RECOVERY_KIND, row['id'], row['version'], row) for row in recovered)
         snapshots = [{"kind": kind, "record": record} for kind, _, _, record in rows]
+        histories_by_source = source_histories(snapshots)
         sources = [json.loads(raw) for (raw,) in db.execute("SELECT data FROM records WHERE kind='source'")]
-        sources.extend(source for history in external_history.values() for source in history)
         policies = [json.loads(raw) for (raw,) in db.execute("SELECT data FROM records WHERE kind='retention_settings' ORDER BY updated_at")]
         settings = policies[-1] if policies else None
         decisions, candidate_status = {}, "available"
@@ -173,6 +227,11 @@ def sanitize_snapshot(path, policy_source=None, observed_at=None):
         changed_versions, content_versions = 0, 0
         db.execute("BEGIN IMMEDIATE")
         try:
+            for record in recovered:
+                raw = json.dumps(record, ensure_ascii=False, allow_nan=False)
+                db.execute("INSERT INTO records(kind,id,topic_id,version,data,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
+                    (RECOVERY_KIND, record['id'], None, 1, raw, record['created_at'], record['updated_at']))
+                db.execute("INSERT INTO versions(kind,id,version,data) VALUES(?,?,?,?)", (RECOVERY_KIND, record['id'], 1, raw))
             for kind, record_id, version, record in rows:
                 if kind != "evidence" or record_id not in affected:
                     continue
@@ -194,7 +253,7 @@ def sanitize_snapshot(path, policy_source=None, observed_at=None):
             raise
         if affected:
             db.execute("VACUUM")
-        return {"policy_version": 1, "mode": "bounded-source-content-omitted", "evaluated_at": observed_at or now(), "omitted_evidence_ids": sorted(affected), "omitted_evidence_count": len(affected), "changed_version_count": changed_versions, "versions_with_content_removed": content_versions, "bounded_sources": [{"source_id": source_id, "retention_days": days} for source_id, days in sorted(limits.items())], "candidate_policy_status": candidate_status, "candidate_actions": [{"id": key, "action": item.get("action"), "reason": item.get("reason")} for key, item in sorted(decisions.items())], "preserved": ["metadata", "user_notes", "version_ids", "citations", "record_counts"], "omitted_fields": ["excerpt", "translation", "content_fingerprint"], "legacy_policy": "missing_or_null_retention_days_does_not_invent_a_limit; missing_source_is_rejected_by_integrity", "notice": "有来源保存期限的材料仅备份元数据与用户注释；全部历史摘录、译文和内容指纹均省略，不能从此包恢复正文。默认无期限来源的合法内容保持完整。"}
+        return {"policy_version": 2, "mode": "bounded-source-content-omitted", "evaluated_at": observed_at or now(), "omitted_evidence_ids": sorted(affected), "omitted_evidence_count": len(affected), "changed_version_count": changed_versions, "versions_with_content_removed": content_versions, "bounded_sources": [{"source_id": source_id, "retention_days": days} for source_id, days in sorted(limits.items())], "recovery_policy_facts_added": len(recovered), "recovery_policy_ids": sorted(row['id'] for kind, _, _, row in rows if kind == RECOVERY_KIND), "candidate_policy_status": candidate_status, "candidate_actions": [{"id": key, "action": item.get("action"), "reason": item.get("reason")} for key, item in sorted(decisions.items())], "preserved": ["metadata", "user_notes", "version_ids", "citations", "existing_record_counts"], "omitted_fields": ["excerpt", "translation", "content_fingerprint"], "legacy_policy": "missing_or_null_retention_days_does_not_invent_a_limit; missing_source_is_rejected_by_integrity", "notice": "有来源保存期限的材料仅备份元数据与用户注释；全部历史摘录、译文和内容指纹均省略，不能从此包恢复正文。恢复时的较严来源约束以独立政策事实保留，不覆盖来源配置；人工重新核对仅影响新材料，旧材料期限不重置。默认无期限来源的合法内容保持完整。"}
     except (sqlite3.DatabaseError, ValueError, TypeError):
         raise OpsError("保留策略快照净化失败，未将快照标为有效备份")
     finally:

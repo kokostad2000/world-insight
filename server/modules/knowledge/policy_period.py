@@ -1,5 +1,8 @@
 """Pure policy-period selection shared by reads, retention and recovery copies."""
 import datetime as dt
+import copy
+
+RECOVERY_KIND = 'recovery_source_policy'
 
 
 def _time(value):
@@ -58,27 +61,77 @@ def applicable_source_versions(history, saved_at):
     Inputs, including historical policy values, are never rewritten.
     """
     history = list(history)
+    recovered = [row for row in history if row.get('recovery_policy_id')]
+    history = [row for row in history if not row.get('recovery_policy_id')]
     start = _time(saved_at)
+    # Recovery facts are a separate lineage. Source version numbers may repeat
+    # after rollback and must never be sorted together with those facts.
+    recovered = [row for row in recovered if start is None or _time(row.get('policy_end_at')) is None
+                 or start <= _time(row['policy_end_at'])]
     if start is None or len(history) < 2:
-        return history
+        return history + recovered
     dated = [(row, _time(row.get('updated_at') or (row.get('created_at') if row.get('version', 1) == 1 else None))) for row in history]
     if any(stamp is None for _, stamp in dated):
-        return history
+        return history + recovered
     ordered = sorted(dated, key=lambda item: item[0].get('version', 0))
     if any(earlier[1] > later[1] for earlier, later in zip(ordered, ordered[1:])):
-        return history
+        return history + recovered
     before = [stamp for _, stamp in dated if stamp < start]
     boundary = max(before) if before else start
-    return [row for row, stamp in dated if stamp >= boundary]
+    return [row for row, stamp in dated if stamp >= boundary] + recovered
+
+
+def recovery_policy_end(fact, native_history):
+    """A recorded interval or an explicit later human review ends future scope.
+
+    The old material still intersects every restriction applied in its lifetime.
+    Ordinary collector/status/name versions cannot silently renew a licence.
+    Unknown recovery time fails closed rather than assuming a later review.
+    """
+    ends = [_time(fact.get('policy_end_at'))]
+    restored = _time(fact.get('restored_at'))
+    if restored is not None:
+        for row in native_history:
+            reviewed = _time(row.get('policy_reviewed_at'))
+            if reviewed is not None and reviewed > restored and isinstance(row.get('policy_reviewed_rights'), dict) and 'policy_reviewed_retention_days' in row:
+                ends.append(reviewed)
+    values = [value for value in ends if value is not None]
+    return min(values).isoformat(timespec='microseconds').replace('+00:00', 'Z') if values else None
 
 
 def source_histories(snapshots, sources=None):
+    snapshots = list(snapshots)
     result = {}
     for entry in snapshots:
         if entry['kind'] == 'source':
             result.setdefault(entry['record']['id'], []).append(entry['record'])
     for source in sources or []:
         result.setdefault(source['id'], []).append(source)
+    # Later immutable facts may add a known end to an earlier open interval.
+    # Keep the earliest confirmed end; duplicating a package does not widen it.
+    facts = {}
+    for entry in snapshots:
+        if entry['kind'] != RECOVERY_KIND:
+            continue
+        fact = entry['record']
+        key = fact.get('policy_hash') or fact['id']
+        if key not in facts:
+            facts[key] = copy.deepcopy(fact)
+        elif _time(fact.get('policy_end_at')) is not None:
+            prior = _time(facts[key].get('policy_end_at'))
+            if prior is None or _time(fact['policy_end_at']) < prior:
+                facts[key]['policy_end_at'] = fact['policy_end_at']
+    for fact in facts.values():
+        source_id = fact['source_id']
+        native = result.get(source_id, [])
+        result.setdefault(source_id, []).append({
+            'id': source_id, 'version': fact.get('source_version', 0),
+            'created_at': fact.get('policy_effective_at'), 'updated_at': fact.get('policy_effective_at'),
+            'rights': copy.deepcopy(fact.get('rights')), 'retention_days': fact.get('retention_days'),
+            'recovery_policy_id': fact['id'], 'policy_hash': fact.get('policy_hash'),
+            'policy_effective_at': fact.get('policy_effective_at'),
+            'policy_end_at': recovery_policy_end(fact, native), 'restored_at': fact.get('restored_at'),
+        })
     return result
 
 
