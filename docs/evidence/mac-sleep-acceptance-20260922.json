@@ -1,0 +1,161 @@
+{
+  "evidence_type": "mac_sleep_acceptance",
+  "acceptance_case": "AC-36",
+  "date": "2026-09-22",
+  "status": "passed",
+  "tested_commit": "c3a5fc7023a1bbfc6a2e59c04f1a2f284c4a730f",
+  "environment": {
+    "os": "macOS 15.6.1",
+    "os_build": "24G90",
+    "architecture": "arm64",
+    "model_identifier": "MacBookAir10,1",
+    "chip": "Apple M1",
+    "python": "3.11.4",
+    "python_sqlite": "3.42.0",
+    "timezone": "Asia/Shanghai"
+  },
+  "isolation": {
+    "data_dir": "/private/tmp/world-insight-sleep-ac36-live-20260922-1",
+    "port": 8897,
+    "instance_id": "41e6f2d5-82b8-40f0-acd9-f28de20d50db",
+    "topic_id": "b5cf0766-e428-4101-98b8-9e91368010c1",
+    "source_id": "source-fed",
+    "source": "Federal Reserve RSS metadata",
+    "fixture_scope": "isolated acceptance topic and settings; upstream requests were real",
+    "user_research_data_modified": false
+  },
+  "preliminary_attempts": [
+    {
+      "instance_id": "1d40d5d7-9a7b-4a40-93c1-dca61a911916",
+      "sleep_at": "2026-09-22T00:18:14+08:00",
+      "full_user_wake_at": "2026-09-22T00:53:03+08:00",
+      "elapsed_seconds": 2089,
+      "result": "excluded",
+      "reason": "The four-request budget had already been consumed and no new gap longer than 600 seconds was produced; this run was not counted as a pass."
+    },
+    {
+      "instance_id": "41e6f2d5-82b8-40f0-acd9-f28de20d50db",
+      "sleep_at": "2026-09-22T01:04:27+08:00",
+      "full_user_wake_at": "2026-09-22T01:11:42+08:00",
+      "elapsed_seconds": 435,
+      "result": "excluded",
+      "reason": "The full user-wake interval was shorter than the required 660 seconds."
+    }
+  ],
+  "qualifying_sleep": {
+    "sleep_event_at": "2026-09-22T01:46:50+08:00",
+    "wake_event_at": "2026-09-22T08:25:56+08:00",
+    "elapsed_seconds": 23946,
+    "elapsed_human": "6h39m06s",
+    "required_seconds": 660,
+    "sleep_reason": "Clamshell Sleep",
+    "wake_reason": "lid open / UserActivity",
+    "pmset_observation": "pmset logged entry to Clamshell Sleep and the later full user wake; intermediate DarkWakes occurred and the scheduler recovered during one of them before the lid-open wake."
+  },
+  "runtime_continuity": {
+    "pid_before_sleep": 28062,
+    "pid_after_wake": 28062,
+    "same_pid": true,
+    "instance_id_before": "41e6f2d5-82b8-40f0-acd9-f28de20d50db",
+    "instance_id_after": "41e6f2d5-82b8-40f0-acd9-f28de20d50db",
+    "same_instance": true,
+    "listener_count_after_wake": 1,
+    "service_lock_held_by_pid": 28062,
+    "collector_lock_held_by_pid": 28062,
+    "operation_start_count": 1,
+    "started_at": "2026-09-21T17:02:52.350466Z"
+  },
+  "scheduler": {
+    "interval_seconds": 300,
+    "daily_budget": 8,
+    "before_sleep_budget_date": "2026-09-21",
+    "before_sleep_requests_today": 8,
+    "before_sleep_last_success": "2026-09-21T17:41:47.279092Z",
+    "after_wake_budget_date": "2026-09-22",
+    "after_wake_requests_today": 8,
+    "daily_budget_never_exceeded": true,
+    "job_request_count_across_two_utc_dates": 16,
+    "first_new_date_success": "2026-09-22T00:09:43.312829Z",
+    "first_success_after_full_user_wake": "2026-09-22T00:28:57.987945Z",
+    "last_success": "2026-09-22T00:38:59.188979Z",
+    "successful_complete_versions": [
+      30,
+      39,
+      42,
+      45
+    ],
+    "transient_failures_observed": [
+      "dns_failed",
+      "network_failed (curl 35)"
+    ],
+    "final_job_state": "retry",
+    "final_source_status": "quota_exhausted",
+    "final_reason": "The finite budget for 2026-09-22 UTC was exhausted after successful recovery checks; the checkpoint was retained.",
+    "data_as_of": "2026-09-18T15:00:00Z"
+  },
+  "coverage": {
+    "gaps": [
+      {
+        "start": "2026-09-21T17:41:47.279092Z",
+        "end": "2026-09-22T00:09:43.312829Z",
+        "seconds": 23276.033737,
+        "reason": "RSS 仅提供当前 feed，停机区间已补读可见条目，历史完整性无法保证。"
+      },
+      {
+        "start": "2026-09-22T00:09:43.312829Z",
+        "end": "2026-09-22T00:28:57.987945Z",
+        "seconds": 1154.675116,
+        "reason": "RSS 仅提供当前 feed，停机区间已补读可见条目，历史完整性无法保证。"
+      }
+    ],
+    "browser_displayed_gaps": true,
+    "coverage_status_after_budget_exhaustion": "unavailable/stale cache, not no-change"
+  },
+  "time_and_version_integrity": {
+    "evidence_count": 16,
+    "evidence_versions_all": 1,
+    "evidence_history_count_each": 1,
+    "receipt_count": 16,
+    "receipt_versions_all": 1,
+    "receipt_history_count_each": 1,
+    "receipt_evidence_versions_still_v1": true,
+    "receipt_last_collected_at": "2026-09-21T17:02:52.611457Z",
+    "event_count_for_topic": 0,
+    "event_times_all_null": true,
+    "latest_published_at": "2026-09-18T15:00:00Z",
+    "old_publication_or_event_time_rewritten_to_wake_time": false,
+    "interpretation": "Repeated successful checks did not create new evidence versions, receipts, events, or wake-time event timestamps. The exact upstream conditional HTTP status was not logged, so no 304 claim is made."
+  },
+  "browser_verification": {
+    "pages": [
+      "#/sources",
+      "topic detail",
+      "evidence detail"
+    ],
+    "observed": [
+      "Source status showed unavailable with cached history, 8/8 requests, quota exhausted, last success and data-as-of separately.",
+      "Collection job showed retry with 16 total requests and both coverage gaps with their reasons.",
+      "Topic showed 16 evidence records, zero events and unknown event occurrence time.",
+      "Evidence detail showed fixed v1 with publication, first acquisition and recent acquisition as separate fields."
+    ],
+    "console_warning_or_error_count": 0
+  },
+  "normal_stop": {
+    "command": "./scripts/stop.sh --data-dir /private/tmp/world-insight-sleep-ac36-live-20260922-1",
+    "stopped_at": "2026-09-22T01:00:30.759112Z",
+    "pid": 28062,
+    "data_preserved": true,
+    "runtime_removed": true,
+    "listener_present_after_stop": false,
+    "lock_holder_present_after_stop": false,
+    "database_integrity_check": "ok",
+    "database_sha256": "f3bf89ebee521a76d98d88ec5ec8a190e199754dc957c96d30f17dfaf67be046",
+    "readout_sha256": "8e5e24b83adbc8cde9b1a30515cae97c0a67c0d9dc0c01a2875adaedaff1f990"
+  },
+  "known_boundaries": [
+    "This was one isolated fixture-labelled research topic using real Federal Reserve RSS metadata on one Mac and one tested commit.",
+    "It does not complete the five-topic, seven-day M4 observation, the 50/20/10 manual review, or the user-efficiency measurement.",
+    "The exact upstream conditional response code was not persisted; unchanged v1 evidence and receipts demonstrate idempotent outcome, not a specific HTTP 304 response.",
+    "After recovered network errors, source.last_error_code and job.error_code retained network_failed while the authoritative source.status, job.state and their last_error values reported quota exhaustion; the browser showed the authoritative state."
+  ]
+}

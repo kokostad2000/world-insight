@@ -48,8 +48,8 @@
 
 与最新平台严格引用检查合入后的最终记录为 `docs/evidence/ops-strict-integrity-tests.txt`：19 项通过（23.319 秒）。在保留前述 17 项实测基础上，备份/恢复还拒绝孤立材料别名、缺失议题/来源/说法/判断/变化和不存在的已读/判断版本引用；校验阶段不会迁移或写入原目标数据库。
 
-后续Mac与正式页面验收汇总见 `docs/evidence/browser-integration-round-two.md`，包含正常更新、故障迁移回退、回退后浏览器继续编辑、阅读状态、自动打开浏览器及附件核对；`docs/handoffs/mac-acceptance-remaining.md`记录SIGKILL/WAL恢复和被拒回退时生成的当前备份再次恢复。最终收取、恢复权限、容量与272项回归见 `docs/evidence/final-integration-20260921.md`；Finder双击的隔离副本、早期权限阻塞和最终通过见 `docs/evidence/finder-double-click-preparation-20260921.md`。各报告锁定不同阶段代码，最终交付仍以 `docs/ACCEPTANCE.md` 当前状态为准。
+后续Mac与正式页面验收汇总见 `docs/evidence/browser-integration-round-two.md`，包含正常更新、故障迁移回退、回退后浏览器继续编辑、阅读状态、自动打开浏览器及附件核对；`docs/handoffs/mac-acceptance-remaining.md`记录SIGKILL/WAL恢复和被拒回退时生成的当前备份再次恢复。最终收取、恢复权限、容量与272项回归见 `docs/evidence/final-integration-20260921.md`；Finder双击的隔离副本、早期权限阻塞和最终通过见 `docs/evidence/finder-double-click-preparation-20260921.md`；真实合盖睡眠、同实例恢复、预算与缺口见 `docs/evidence/mac-sleep-acceptance-20260922.md`。各报告锁定不同阶段代码，最终交付仍以 `docs/ACCEPTANCE.md` 当前状态为准。
 
 恢复或备份可能依据已登记的来源保存权限与期限省略或清除历史正文；这不删除材料身份、标题、原链接、人工笔记或固定研究引用。恢复旧包也不会重置后来已经收紧的来源约束。具体版本变化与已知限制见 `docs/RELEASE_NOTES.md`。
 
-仍未测试实际断电、物理磁盘耗尽或真实OS睡眠唤醒；Finder手势已通过。七天自然运行、结构抽查及效率观察属于M4，不用上述工程测试替代。
+真实 OS 睡眠唤醒与 Finder 手势均已通过所列 Mac 验收；仍未测试实际断电或物理磁盘耗尽。七天自然运行、结构抽查及效率观察属于 PRD M4，不用上述工程测试替代。
