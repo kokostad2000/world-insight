@@ -2,7 +2,13 @@
 
 在自己的 Mac 上整理议题、材料、说法、事件和研究判断。所有研究数据保存在本机；付费数据、云端 AI、航空和船舶能力默认关闭。已审阅表示用户完成审阅，不表示系统证明了真相。
 
-项目需求与验收边界分别见 [PRD](docs/PRD.md)、[验收矩阵](docs/ACCEPTANCE.md)、[当前进度](docs/PROGRESS.md)。七天真实试运行属于 PRD M4；工程测试不会替代七天观察。私有代码仓为 [kokostad2000/world-insight](https://github.com/kokostad2000/world-insight)，本轮开发仅本地提交，未授权推送。
+项目需求与验收边界分别见 [PRD](docs/PRD.md)、[验收矩阵](docs/ACCEPTANCE.md)、[当前进度](docs/PROGRESS.md)。七天真实试运行属于 PRD M4；工程测试不会替代七天观察。私有代码仓为 [kokostad2000/world-insight](https://github.com/kokostad2000/world-insight)；此前开发阶段仅本地提交，本次许可变更按用户授权推送到 `main`。
+
+## 许可与项目关系
+
+除另有说明的第三方代码、地图资源、数据源和素材外，本项目原创代码采用 [MIT License](LICENSE)。第三方项目、资源和数据来源见 [第三方许可清单](THIRD_PARTY_NOTICES.md)；它们各自的条款不因本项目采用 MIT 而被扩大。
+
+本项目是面向本地研究使用的独立实现，受 [World Monitor](https://github.com/koala73/worldmonitor) 的信息整合、地理关联和局势观察思路启发，但不是 World Monitor 官方版本。本仓库不重新分发 World Monitor 主项目源代码；如未来引入其代码，应按对应文件的原始许可证重新审查，不能直接套用本项目的 MIT License。
 
 ## 首次准备（macOS）
 
