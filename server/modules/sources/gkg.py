@@ -20,8 +20,11 @@ from .adapters import FetchError, _check, _external_link
 
 INDEX_URL = 'https://data.gdeltproject.org/gdeltv2/lastupdate.txt'
 INDEX_LIMIT = 64 * 1024
-ZIP_LIMIT = 4 * 1024 * 1024
-EXPANDED_LIMIT = 16 * 1024 * 1024
+# The live 2026-09-22 batch was 6,578,603 compressed bytes and 20,389,639
+# expanded bytes. Keep explicit bounded parsing while allowing the observed
+# provider payload; these are safety ceilings, not expected batch sizes.
+ZIP_LIMIT = 8 * 1024 * 1024
+EXPANDED_LIMIT = 32 * 1024 * 1024
 NOTE = 'GDELT GKG 15 分钟批次时间不是原文发布时间；仅最新批次，未补齐历史；按 PAGE_TITLE 与主题标签匹配关键词及排除词；仅元数据，不抓新闻正文。'
 
 
@@ -37,7 +40,7 @@ def manifest(value):
     if (not isinstance(batch, str) or not re.fullmatch(r'\d{14}', batch)
             or not isinstance(checksum, str) or not re.fullmatch(r'[0-9a-f]{32}', checksum)
             or type(size) is not int or not 0 < size <= ZIP_LIMIT):
-        raise _error('GKG 清单含无效批次、校验值或超出 4 MiB 的压缩文件。')
+        raise _error('GKG 清单含无效批次、校验值或超出 8 MiB 的压缩文件。')
     try:
         timestamp = datetime.strptime(batch, '%Y%m%d%H%M%S').replace(tzinfo=timezone.utc)
     except ValueError as exc:
@@ -76,7 +79,7 @@ def parse_zip(response, item):
     item = manifest(item)
     body = response.body
     if response.status != 200 or len(body) > ZIP_LIMIT or len(body) != item['size']:
-        raise _error('GKG 压缩包大小与索引不符或超出 4 MiB。')
+        raise _error('GKG 压缩包大小与索引不符或超出 8 MiB。')
     # The HTTPS transport authenticates the endpoint; MD5 only checks index/file consistency.
     if hashlib.md5(body).hexdigest() != item['md5']:
         raise _error('GKG 压缩包与官方索引 MD5 不符，已拒绝解析。')
@@ -91,11 +94,11 @@ def parse_zip(response, item):
                     or mode not in (0, stat.S_IFREG) or entry.flag_bits & 1
                     or entry.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED)
                     or entry.file_size > EXPANDED_LIMIT):
-                raise _error('GKG ZIP 文件路径、类型或解压大小不安全，已拒绝解析。')
+                raise _error('GKG ZIP 文件路径、类型或解压大小不安全（上限 32 MiB），已拒绝解析。')
             with archive.open(entry) as handle:
                 raw = handle.read(EXPANDED_LIMIT + 1)
             if len(raw) > EXPANDED_LIMIT or len(raw) != entry.file_size:
-                raise _error('GKG 解压响应超出 16 MiB 或文件长度不符。')
+                raise _error('GKG 解压响应超出 32 MiB 或文件长度不符。')
         text = raw.decode('utf-8')
     except (zipfile.BadZipFile, UnicodeError, RuntimeError, OSError, EOFError) as exc:
         raise _error('GKG ZIP 或 UTF-8 内容无效，未将错误当作空结果。') from exc
@@ -172,7 +175,7 @@ class Cache:
         try:
             path = self.path / name
             if path.stat().st_size > EXPANDED_LIMIT:
-                raise _error('GKG 本地缓存超出大小限制。')
+                raise _error('GKG 本地缓存超出 32 MiB 大小限制。')
             return json.loads(path.read_text())
         except FileNotFoundError:
             return None
@@ -182,7 +185,7 @@ class Cache:
     def write(self, name, value):
         payload = json.dumps(value, ensure_ascii=False).encode()
         if len(payload) > EXPANDED_LIMIT:
-            raise _error('GKG 元数据缓存超出 16 MiB。')
+            raise _error('GKG 元数据缓存超出 32 MiB。')
         fd, temporary = tempfile.mkstemp(prefix='.pending-', dir=self.path)
         try:
             with os.fdopen(fd, 'wb') as handle:

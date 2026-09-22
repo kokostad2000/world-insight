@@ -40,6 +40,17 @@ def payload(raw=None, filename=None, extra=False):
 
 
 class GkgParserTests(unittest.TestCase):
+    def test_live_observed_batch_size_remains_inside_bounded_envelope(self):
+        item = gkg.manifest({
+            'batch': '20260922150000',
+            'md5': 'ad89d137d38429d21bbc14bae930d182',
+            'size': 6578603,
+        })
+        self.assertLess(item['size'], gkg.ZIP_LIMIT)
+        self.assertLess(20389639, gkg.EXPANDED_LIMIT)
+        self.assertEqual(gkg.ZIP_LIMIT, 8 * 1024 * 1024)
+        self.assertEqual(gkg.EXPANDED_LIMIT, 32 * 1024 * 1024)
+
     def test_fixed_index_https_upgrade_and_metadata_only(self):
         item, index, response = payload()
         self.assertEqual(gkg.parse_index(index), item)
