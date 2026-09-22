@@ -708,7 +708,7 @@ class Scheduler:
             if source['adapter'] == 'rss' and job.get('covered_until') and _date(now) - _date(job['covered_until']) > timedelta(seconds=source['interval_seconds'] * 2):
                 gaps.append({'start': job['covered_until'], 'end': now, 'reason': 'RSS 仅提供当前 feed，停机区间已补读可见条目，历史完整性无法保证。'})
             patch = {'state': 'complete' if complete else 'queued', 'checkpoint': checkpoint,
-                'last_error': None, 'attempts': 0,
+                'last_error': None, 'error_code': None, 'attempts': 0,
                 'last_result_count': current_job.get('last_result_count', 0) if parsed['not_modified'] else job.get('cycle_result_count', 0) + len(parsed['evidence']),
                 'cycle_result_count': job.get('cycle_result_count', 0) + len(parsed['evidence']),
                 'last_success': now, 'data_as_of': current_job.get('data_as_of') if parsed['not_modified'] else parsed['data_as_of'],
@@ -722,7 +722,7 @@ class Scheduler:
                 if parsed.get(key):
                     patch[key] = parsed[key]
             job = _patch(self.store, 'collection_job', current_job, patch)
-            values = {'status': 'ready', 'last_success': now, 'last_error': None,
+            values = {'status': 'ready', 'last_success': now, 'last_error': None, 'last_error_code': None,
                       'data_as_of': current.get('data_as_of') if parsed['not_modified'] else parsed['data_as_of'],
                       'last_result_count': job['last_result_count']}
             for key in ('etag', 'last_modified'):

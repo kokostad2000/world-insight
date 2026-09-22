@@ -368,6 +368,8 @@ class GkgSchedulerTests(unittest.TestCase):
         events = [row[0] for row in self.store.db.execute("SELECT type FROM outbox WHERE aggregate_id='source-gdelt-gkg'")]
         self.assertEqual(events.count('source.failed'), 1)
         self.assertEqual(events.count('source.recovered'), 1)
+        self.assertIsNone(self.store.get('source', 'source-gdelt-gkg').get('last_error_code'))
+        self.assertTrue(all(job.get('error_code') is None for job in self.store.all('collection_job')))
         self.assertEqual(self.store.get('source', 'source-gdelt')['status'], 'failed')
         self.assertEqual(sources.coverage(self.store, topic['id'])['coverage_status'], 'partial')
 
