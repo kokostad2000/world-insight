@@ -1,6 +1,6 @@
 # 当前进度（恢复入口）
 
-2026-09-22：PRD 工程 M1—M3 已完成验收。私有 origin https://github.com/kokostad2000/world-insight 已确认，远端没有这份实现；只有本地提交，未推送。Python 3.11标准库 + SQLite WAL + 原生ES modules/SVG；运行时无npm/pip下载。
+2026-09-23：PRD 工程 M1—M3 已完成验收，当前 `main` 包含完整本地实现及 M4 试运行准备变更。代码仓为 https://github.com/kokostad2000/world-insight。Python 3.11标准库 + SQLite WAL + 原生ES modules/SVG；运行时无npm/pip下载。
 
 ## 当前增量（取代下方历史状态）
 

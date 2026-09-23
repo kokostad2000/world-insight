@@ -2,7 +2,7 @@
 
 在自己的 Mac 上整理议题、材料、说法、事件和研究判断。所有研究数据保存在本机；付费数据、云端 AI、航空和船舶能力默认关闭。已审阅表示用户完成审阅，不表示系统证明了真相。
 
-项目需求与验收边界分别见 [PRD](docs/PRD.md)、[验收矩阵](docs/ACCEPTANCE.md)、[当前进度](docs/PROGRESS.md)。七天真实试运行属于 PRD M4；工程测试不会替代七天观察。私有代码仓为 [kokostad2000/world-insight](https://github.com/kokostad2000/world-insight)；此前开发阶段仅本地提交，本次许可变更按用户授权推送到 `main`。
+项目需求与验收边界分别见 [PRD](docs/PRD.md)、[验收矩阵](docs/ACCEPTANCE.md)、[当前进度](docs/PROGRESS.md)。七天真实试运行属于 PRD M4；工程测试不会替代七天观察。代码仓为 [kokostad2000/world-insight](https://github.com/kokostad2000/world-insight)，`main` 是当前交付基线。
 
 ## 许可与项目关系
 
@@ -14,7 +14,7 @@
 
 需要 CPython **3.11.x**、Git，以及支持 ES Modules/Fetch/SVG 的 Safari 或 Chrome。无需 Node、Docker 或第三方 Python 包。系统 curl 用于免费源联网；缺失时人工研究与历史阅读仍可运行。已核对的运行基线见 `requirements.lock`；实际Mac与浏览器证据汇总见 [本地验收记录](docs/evidence/browser-integration-round-two.md)，发布状态见 [版本说明](docs/RELEASE_NOTES.md)。
 
-当前完整代码位于本机 `/Users/zhanglike/Desktop/world-insight`。GitHub 私有仓库尚未推送，**现在不能从远端下载到这份实现**。可直接使用当前目录；需要独立的代码副本时，先核对 `git status` 和 `git log -1`，以下命令只复制已提交的 main，不包含未提交工作或研究数据：
+当前完整代码位于本机 `/Users/zhanglike/Desktop/world-insight`。需要独立的代码副本时，先核对 `git status` 和 `git log -1`，以下命令只复制已提交的 main，不包含未提交工作或研究数据：
 
 ```bash
 git clone --local --no-hardlinks --branch main "/Users/zhanglike/Desktop/world-insight" "/你选择的新目录/world-insight"
